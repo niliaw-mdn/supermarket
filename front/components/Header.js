@@ -1,7 +1,8 @@
-import handler from "@/pages/api/hello";
 import React from "react";
-import { IoPersonCircleSharp } from "react-icons/io5";
 import { useRouter } from "next/router";
+
+import { IoPersonCircleSharp } from "react-icons/io5";
+
 
 function Header() {
 
