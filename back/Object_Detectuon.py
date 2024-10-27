@@ -1,14 +1,15 @@
 # Alireza Samanipour
-# 
+# object detection for supermarket 
 
 import os
 import cv2
 import supervision as sv
 from ultralytics import YOLO
 
-
+# in this traind file we have 5 obj to detect(best.pt)
 model = YOLO(f'best.pt')
 
+# 
 Bounding_Box_Annotator = sv.BoundingBoxAnnotator()
 labels_annotator = sv.LabelAnnotator()
 
