@@ -22,7 +22,7 @@ class SimpleFacerec:
         # Load Images
         images_path = glob.glob(os.path.join(images_path, "*.*"))
 
-        print("{} encoding images found.".format(len(images_path)))
+        print(f"{len(images_path)} encoding images found.")
 
         # Store image encoding and names
         for img_path in images_path:

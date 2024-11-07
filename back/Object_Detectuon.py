@@ -34,7 +34,7 @@ while True:
     annotated_image = labels_annotator.annotate(scene=annotated_image, detections=detections)
     
     cv2.imshow('Webcam', annotated_image)
-    k = cv2.waitKey(1)
+    k = cv2.waitKey(4)
     if k % 256 == 27:
         print("Escape hit, closing...") #break poin of while
         break
