@@ -35,7 +35,7 @@ function Index() {
           <div className="mb-4 font-semibold pt-5 pl-56">
             :مشخصات محصول را وارد کنید
           </div>
-          <ul className="list-none" dir="rtl">
+          <ul className="list-none">
             <li className="py-5">
               <input
                 className="h-8 w-72 rounded-md p-3"
