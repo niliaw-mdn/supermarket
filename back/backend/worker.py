@@ -11,3 +11,6 @@ class Worker:
         self.StatusOfTheDutySystem = StatusOfTheDutySystem
         self.contractStartDate = contractStartDate
         self.contractEndDate = contractEndDate
+        
+        
+    

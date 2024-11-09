@@ -18,8 +18,29 @@ class Product:
         self.dateAddedToStock = dateAddedToStock
         self.totalProfitOnSales = totalProfitOnSales
 
-
-
-    
-    
+    #this function is for add new products to data base
+    def insertProduct():
+        pass
         
+    #this function made for returning sale price by adding the discount to it
+    def returningSalePrice(self):
+        return self.salePrice - (self.salePrice * (self.discountPercentage / 100))
+        
+    #this function making updates to any product we want to 
+    def updateProperteis():
+        pass
+    
+    #this is for sending Allert ti admin if any product is going to be expierd
+    def expirationDateAllert():
+        pass
+    
+    # this function making taking photos easier for admin 
+    def addImagesForDataset():
+        pass
+    # this is returning all available quantity for product
+    def inventory(self):
+        return self.availableQuantity
+    
+    
+    
+    
