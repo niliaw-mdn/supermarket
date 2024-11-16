@@ -1,7 +1,6 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/router";
 import { useState , useRef , useEffect } from "react";
 
 import { TbMenuDeep } from "react-icons/tb";
@@ -9,7 +8,6 @@ import { IoPersonCircleSharp } from "react-icons/io5";
 import { IoCloseSharp } from "react-icons/io5";
 
 function Header() {
-  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -66,9 +64,6 @@ function Header() {
   };
 
 
-  const clickHandler = () => {
-    router.push("/profile");
-  };
   return (
     <div className="flex justify-center">
       <div className="w-[95%] h-[119px] relative ">
@@ -76,10 +71,6 @@ function Header() {
         <div className="w-[131px] h-[50px] left-[150px] top-6 absolute text-white text-[25px] font-semibold">
           Total
         </div>
-        <IoPersonCircleSharp
-          className="w-[60px] h-[60px] right-[85px] top-[16px] absolute text-white cursor-pointer"
-          onClick={clickHandler}
-        />
         
         <div className="w-[131px] h-[50px] left-[230px] top-6 absolute text-white text-[25px] font-semibold">
           Reset
@@ -90,7 +81,7 @@ function Header() {
         />
         <div className="relative z-50">
           {!isOpen && (
-            <TbMenuDeep onClick={() => setIsOpen(true)} className="h-14 w-20 mt-[17px] text-white" />
+            <TbMenuDeep onClick={() => setIsOpen(true)} className="h-14 w-20 mt-[17px] text-white cursor-pointer" />
           )}
 
           <div
@@ -126,19 +117,16 @@ function Header() {
             <nav>
               <ul className="w-[90%] divide-y divide-gray-300 pr-10">
                 <li className="p-6">
-                  <a>صفحه اصلی</a>
+                  <a href="./">صفحه اصلی</a>
                 </li>
                 <li className="p-6">
-                  <a>خدمات ما</a>
+                  <a href="./profile">پروفایل</a>
                 </li>
                 <li className="p-6">
-                  <a>کاربران</a>
+                  <a href="/dashboardAdmin">محصولات</a>
                 </li>
                 <li className="p-6">
-                  <a>تماس باما</a>
-                </li>
-                <li className="p-6">
-                  <a>درباره ما</a>
+                  <a href="/costumer">کارکنان</a>
                 </li>
               </ul>
             </nav>

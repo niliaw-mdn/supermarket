@@ -32,7 +32,7 @@ function Index() {
             </a>
           </div>
 
-          <div className="relative w-[200px] h-[40px] left-[150px] top-6">
+          <div className="relative w-[250px] h-[40px] right-80 top-6">
             <IoSearch className="absolute text-gray-700 text-[20px] top-1/2 left-3 transform -translate-y-1/2" />
             <input
               className="pl-10 w-full h-full border-none rounded-lg outline-none text-gray-700 text-[18px]"
