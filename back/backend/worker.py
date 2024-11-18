@@ -12,5 +12,19 @@ class Worker:
         self.contractStartDate = contractStartDate
         self.contractEndDate = contractEndDate
         
+    #adding more workers in the store
+    def addWorker(self):
+        pass
+        
+        
+    #delete worker from database
+    def deleteWorker(self):
+        pass
+    
+    #updating worker information
+    def updateWorker(self):
+        pass
+    
+    
         
     

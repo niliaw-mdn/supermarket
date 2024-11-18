@@ -11,4 +11,19 @@ class Customer:
     
     
     
+    #sign up for costumer
+    def signUp(self):
+        pass
+    
+    
+    #delete costumer from database
+    def deleteCostumer(self):
+        pass
+    
+    
+    #shopping methode for costumer
+    def shopping():
+        pass
+    
+    
     

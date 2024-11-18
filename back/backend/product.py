@@ -60,9 +60,14 @@ class Product:
                 break
             elif k % 256 == ord('s'):   # wait for 's' key to save and exit
                 img_name = os.path.join(output_dir, f"opencv_frame_{image_counter}.png")
+                
+                # add the encoding images here
+                
+                
                 cv2.imwrite(img_name, frame)
                 print(f"{img_name}written!")
                 image_counter += 1
+                
 
         cap.release()
         cv2.destroyAllWindows()
