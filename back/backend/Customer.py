@@ -9,8 +9,6 @@ class Customer:
         self.total = total
     
     
-    
-    
     #sign up for costumer
     def signUp(self):
         pass

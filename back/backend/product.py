@@ -1,8 +1,7 @@
 import cv2
 import os
 class Product:
-    def __init__(self, name, manufacturer, weight, salePrice, purchasePrice,discountPercentage, imageData, voluminosity, combinations,
-                nutritionalInformation, expirationDate, storageConditions, availableQuantity, numberSold, dateAddedToStock, totalProfitOnSales):
+    def __init__(self, name, manufacturer, weight, salePrice, purchasePrice,discountPercentage, imageData, voluminosity, combinations, nutritionalInformation, expirationDate, storageConditions, availableQuantity, numberSold, dateAddedToStock, totalProfitOnSales):
         self.name = name
         self.manufacturer = manufacturer
         self.weight = weight

@@ -16,7 +16,6 @@ class Worker:
     def addWorker(self):
         pass
         
-        
     #delete worker from database
     def deleteWorker(self):
         pass
@@ -25,6 +24,13 @@ class Worker:
     def updateWorker(self):
         pass
     
+    # checking in and out for workers
+    def inAndOut(self):
+        pass
+        
+    
     
         
+        
+    
     
