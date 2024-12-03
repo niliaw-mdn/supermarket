@@ -1,7 +1,9 @@
+from backend import product_dao
 from sql_connection import get_sql_connection
 from datetime import datetime
+from product_dao import get_available_quantity
 
-def insert_order(connection, order):  # sourcery skip: list-comprehension
+def insert_order(connection, order):  # sourcery skip: for-append-to-extend, list-comprehension
     cursor = connection.cursor()
 
     order_query = ("INSERT INTO orders "
@@ -16,14 +18,23 @@ def insert_order(connection, order):  # sourcery skip: list-comprehension
                         "(order_id, product_id, quantity, total_price)"
                         "VALUES (%s, %s, %s, %s)")
 
+        
     order_details_data = []
     for order_detail_record in order['order_details']:
-        order_details_data.append([
-            order_id,
-            int(order_detail_record['product_id']),
-            float(order_detail_record['quantity']),
-            float(order_detail_record['total_price'])
-        ])
+        try:
+            aq = int(product_dao.get_availableity_quantity(connection,order_detail_record['product_id']))
+            if not (aq >= order_detail_record['quaantity']):
+                print("mojoodi anbar nadarim")
+        except:
+            order_details_data.append([
+                order_id,
+                int(order_detail_record['product_id']),
+                float(order_detail_record['quantity']),
+                float(order_detail_record['total_price'])
+            ])
+        
+        
+    
     cursor.executemany(order_details_query, order_details_data)
 
     connection.commit()

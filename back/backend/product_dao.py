@@ -22,7 +22,7 @@ def get_all_products(connection):
 #product arg is a dictionary of a product
 def insert_new_product(connection, product):
     cursor = connection.cursor()
-    query = ("insert into product (name, uom_id, price_per_unit, available_quantity) values (%s, %s, %s,% s)")
+    query = ("insert into product (name, uom_id, price_per_unit, available_quantity) values (%s, %s, %s, %s)")
     data = (product['product_name'], product['uom_id'], product['price_per_unit'], product['available_quantity'])
     cursor.execute(query, data)
     connection.commit()
@@ -31,6 +31,7 @@ def insert_new_product(connection, product):
     
     
 def delete_product(connection, product_id):
+    # sourcery skip: use-fstring-for-concatenation
     cursor = connection.cursor()
     query = ("DELETE FROM product where product_id=" + str(product_id))
     cursor.execute(query)
@@ -43,6 +44,22 @@ def update_product(connection, product_id, amount):
     cursor.execute(query)
     connection.commit()
     
+    
+    
+
+#have to be complete for availablity
+def get_available_quantity(connection, product_id):
+    cursor = connection.cursor()
+    query = f"SELECT product.available_quantity FROM grocery_store.product WHERE product_id={[product_id]}"
+    cursor.execute(query)
+    return [
+        {'available_quantity': available_quantity}
+        for available_quantity in cursor
+    ]
+
+
+
+
 if __name__=='__main__':
     connection = get_sql_connection()
     print(delete_product(connection, 4))
