@@ -1,7 +1,7 @@
 import cv2
 import os
 class Product:
-    def __init__(self, name, manufacturer, weight, salePrice, purchasePrice,discountPercentage, imageData, voluminosity, combinations, nutritionalInformation, expirationDate, storageConditions, availableQuantity, numberSold, dateAddedToStock, totalProfitOnSales):
+    def __init__(self, name, manufacturer, weight, salePrice, purchasePrice,discountPercentage, imageData, voluminosity, combinations, nutritionalInformation, expirationDate, storageConditions, availableQuantity, numberSold, dateAddedToStock, totalProfitOnSales, errorRateInWeight):
         self.name = name
         self.manufacturer = manufacturer
         self.weight = weight
@@ -18,6 +18,7 @@ class Product:
         self.numberSold = numberSold
         self.dateAddedToStock = dateAddedToStock
         self.totalProfitOnSales = totalProfitOnSales
+        self.errorRateInWeight = errorRateInWeight 
 
     #this function is for add new products to data base
     def insertProduct():

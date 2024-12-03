@@ -45,6 +45,18 @@ def insert_product():
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
+# not tested befor using the function please test it  !!!!!!!!!!!!!!!!!!!!!!!!!
+@app.route('/updateProduct', methods={'POST'})
+def update_product():
+    request_payload = json.loads(request.form['date'])
+    product_id = product_dao.update_product(connection, request.form['product_id'], amount )
+    response = jsonify({
+        'product_id': product_id
+    })
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response
+
+
 @app.route('/insertOrder', methods=['POST'])
 def insert_order():
     request_payload = json.loads(request.form['date'])
@@ -65,6 +77,6 @@ def get_all_orders():
 
 if __name__ == "__main__":
     print("starting python flask")
-    app.run(port=5000)
+    app.run(port = 5000)
     
     
