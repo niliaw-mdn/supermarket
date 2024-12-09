@@ -126,7 +126,7 @@ function Header() {
                   <a href="/dashboardAdmin">محصولات</a>
                 </li>
                 <li className="p-6">
-                  <a href="/costumer">کارکنان</a>
+                  <a href="/staff">کارکنان</a>
                 </li>
               </ul>
             </nav>
