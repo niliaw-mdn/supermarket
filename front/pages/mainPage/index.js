@@ -23,14 +23,20 @@ function Index() {
   }
 
   return (
-    <div className="flex justify-center items-center h-screen">
-      <div className="text-center">
-        <img src="./pic/main.png" width={600} alt="Main" />
-        <h1 className="text-7xl mt-8 text-lime-500">
-          به فروشگاه ما خوش آمدید
-        </h1>
-      </div>
+    <div
+    className="flex justify-center items-center h-screen bg-cover bg-center"
+    style={{
+      backgroundImage: "url('./pic/bgmain.gif')",
+    }}
+  >
+    <div className="text-center">
+      <img src="./pic/main.png" width={600} alt="Main" />
+      <h1 className="text-7xl mt-8 text-white font-bold">
+        به فروشگاه ما خوش آمدید
+      </h1>
     </div>
+  </div>
+  
   );
 }
 
