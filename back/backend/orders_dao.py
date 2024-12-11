@@ -1,4 +1,4 @@
-from backend import product_dao
+import product_dao
 from sql_connection import get_sql_connection
 from datetime import datetime
 from product_dao import get_available_quantity

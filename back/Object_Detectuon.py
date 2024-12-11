@@ -7,7 +7,7 @@ import supervision as sv
 from ultralytics import YOLO
 
 # in this traind file we have 5 obj to detect(best.pt)
-model = YOLO(f'best.pt')
+model = YOLO(r'C:\Users\LENOVO\Documents\GitHub\supermarket\back\best.pt')
 
 # 
 Bounding_Box_Annotator = sv.BoundingBoxAnnotator()

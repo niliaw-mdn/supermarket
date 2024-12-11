@@ -1,6 +1,6 @@
 import json
 from flask import Flask, request, jsonify
-from back.backend import uom_dao
+import uom_dao
 import product_dao
 from sql_connection import get_sql_connection
 import orders_dao
@@ -12,6 +12,13 @@ connection = get_sql_connection()
 def get_products():
     
     products = product_dao.get_all_products(connection)
+    response = jsonify(products)
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response
+
+@app.route('/getOneProduct', methods=['GET'])
+def get_one_product():
+    products = product_dao.get_product(connection)
     response = jsonify(products)
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
@@ -34,6 +41,12 @@ def get_uom():
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
     
+@app.route('/opencamera', methods=['GET'])
+def getcamera():
+    
+    return {"a":1}
+
+
     
 @app.route('/insertProduct', methods={'POST'})
 def insert_product():
@@ -42,7 +55,6 @@ def insert_product():
     response = jsonify({
         'product_id': product_id
     })
-    response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
 # not tested befor using the function please test it  !!!!!!!!!!!!!!!!!!!!!!!!!
