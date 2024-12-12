@@ -6,19 +6,46 @@ import axios from "axios";
 function Index() {
   const router = useRouter();
   const [fetchdata, setFetchdata] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [openSection, setOpenSection] = useState(null);
+  const [minValue, setMinValue] = useState(1000); 
+  const [maxValue, setMaxValue] = useState(50000);
+  const [isCategoryOpen, setIsCategoryOpen] = useState(false); 
+  const [isPriceOpen, setIsPriceOpen] = useState(false); 
+  const [isBrandOpen, setIsBrandOpen] = useState(false);
+  const [selectedBrands, setSelectedBrands] = useState([]); 
 
-  const backHandler = () => {
-    router.back();
-  };
-
-  const addItemHandler = () => {
-    router.push("./addItems");
-  };
+  const backHandler = () => router.back();
+  const addItemHandler = () => router.push("./addItems");
 
   useEffect(() => {
     axios.get(`https://fakestoreapi.com/products`).then((res) => {
       setFetchdata(res.data);
     });
+  }, []);
+
+  const toggleBrandSelection = (brand) => {
+    setSelectedBrands((prev) =>
+      prev.includes(brand) ? prev.filter((b) => b !== brand) : [...prev, brand]
+    );
+  };
+
+  const filteredData = fetchdata.filter((item) =>
+    item.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const toggleSection = (section) => {
+    setOpenSection(openSection === section ? null : section);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!event.target.closest(".accordion")) {
+        setOpenSection(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   return (
@@ -37,6 +64,8 @@ function Index() {
             <input
               className="pl-10 w-full h-full border-none rounded-lg outline-none text-gray-700 text-[18px]"
               placeholder="Search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
@@ -53,8 +82,173 @@ function Index() {
           />
         </div>
       </div>
-      <div className="flex justify-center mt-4">
-        <table className="table-auto border-collapse border border-gray-300 w-[90%] text-center">
+      <div className="flex mx-5 mt-4 justify-between">
+        <div className="border-4 border-slate-700 w-80 overflow-hidden">
+          <div className="flex justify-between p-3">
+            <p className="font-bold text-xl text-slate-800">فیلترها</p>
+            <span>
+              <a href="#" className="text-teal-600">
+                حذف فیلترها
+              </a>
+            </span>
+          </div>
+          <div className="w-full">
+            <div className="relative  w-full">
+              <button
+                onClick={() => setIsCategoryOpen(!isCategoryOpen)}
+                 className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
+              >
+                دسته بندی
+                <svg
+                  className="w-5 h-5 ml-2 text-gray-500"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+              {isCategoryOpen && (
+                <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5">
+                  <ul className="py-1 text-md divide-y-2 text-gray-700 text-center">
+                    {[
+                      "تنقلات",
+                      "لبنیات",
+                      "کنسرو و غذای آماده",
+                      "میوه و سبزیجات",
+                      "مواد پروتئینی",
+                      "نوشیدنی ها",
+                    ].map((option) => (
+                      <li key={option}>
+                        <a
+                          href="#"
+                          className="block px-4 py-2 hover:bg-gray-100"
+                        >
+                          {option}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            <div className="relative w-full mt-4">
+              <button
+                onClick={() => setIsPriceOpen(!isPriceOpen)}
+                className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
+              >
+                محدوده قیمت
+                <svg
+                  className="w-5 h-5 ml-2 text-gray-500"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+              {isPriceOpen && (
+                <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5 p-4">
+                  <div className="flex flex-col items-center">
+                    <div className="flex justify-between w-full mb-4">
+                      <label className="text-sm text-gray-600">
+                        حداقل قیمت:
+                        <input
+                          type="number"
+                          min="1000"
+                          className="ml-2 border rounded-lg p-1 w-28"
+                          value={minValue}
+                          onChange={(e) => setMinValue(Number(e.target.value))}
+                        />
+                      </label>
+                      <label className="text-sm text-gray-600">
+                        حداکثر قیمت:
+                        <input
+                          type="number"
+                          max="50000"
+                          className="ml-2 border rounded-lg p-1 w-28"
+                          value={maxValue}
+                          onChange={(e) => setMaxValue(Number(e.target.value))}
+                        />
+                      </label>
+                    </div>
+                    <button
+                      className="bg-green-500 text-white px-4 py-2 rounded-lg"
+                      onClick={() => setIsPriceOpen(false)}
+                    >
+                      اعمال فیلتر
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="relative w-full mt-4">
+              <button
+                onClick={() => setIsBrandOpen(!isBrandOpen)}
+                className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
+              >
+                برند
+                <svg
+                  className="w-5 h-5 ml-2 text-gray-500"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+              {isBrandOpen && (
+                <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5 p-4">
+                  <div className="flex flex-col items-center">
+                    <div className="flex justify-center w-full mb-4">
+                      <ul className="py-1 text-md divide-y-2 text-gray-700 text-center">
+                        {["brand1", "brand2", "brand3", "brand4"].map((option) => (
+                          <li key={option}>
+                            <input
+                              type="checkbox"
+                              checked={selectedBrands.includes(option)}
+                              onChange={() => toggleBrandSelection(option)}
+                              className="ml-2 border rounded-lg p-1 w-28"
+                            />
+                            {option}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <button
+                      className="bg-green-500 text-white px-4 py-2 rounded-lg"
+                      onClick={() => setIsBrandOpen(false)}
+                    >
+                      اعمال فیلتر
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <table className="table-auto border-collapse border border-gray-300 w-[80%] text-center">
           <thead className="bg-gray-200">
             <tr>
               <th className="border border-gray-300 px-4 py-2">Image</th>
@@ -64,7 +258,7 @@ function Index() {
             </tr>
           </thead>
           <tbody>
-            {fetchdata.map((post) => (
+            {filteredData.map((post) => (
               <tr key={post.id} className="odd:bg-white even:bg-gray-100">
                 <td className="border border-gray-300 px-4 py-2">
                   <img
@@ -73,9 +267,15 @@ function Index() {
                     alt={post.title}
                   />
                 </td>
-                <td className="border border-gray-300 px-4 py-2">{post.title}</td>
-                <td className="border border-gray-300 px-4 py-2">${post.price}</td>
-                <td className="border border-gray-300 px-4 py-2">{post.category}</td>
+                <td className="border border-gray-300 px-4 py-2">
+                  {post.title}
+                </td>
+                <td className="border border-gray-300 px-4 py-2">
+                  ${post.price}
+                </td>
+                <td className="border border-gray-300 px-4 py-2">
+                  {post.category}
+                </td>
               </tr>
             ))}
           </tbody>
