@@ -82,8 +82,8 @@ function Index() {
           />
         </div>
       </div>
-      <div className="flex mx-5 mt-4 justify-between">
-        <div className="border-4 border-slate-700 w-80 overflow-hidden">
+      <div className="flex mx-5 mt-4 justify-between items-start">
+        <div className="border-2 border-l-gray-500 shadow-md shadow-black w-80 overflow-hidden h-auto">
           <div className="flex justify-between p-3">
             <p className="font-bold text-xl text-slate-800">فیلترها</p>
             <span>

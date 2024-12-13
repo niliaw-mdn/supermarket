@@ -5,7 +5,6 @@ import { useState , useRef , useEffect } from "react";
 import Product from "./template/Product";
 
 import { TbMenuDeep } from "react-icons/tb";
-import { IoPersonCircleSharp } from "react-icons/io5";
 import { IoCloseSharp } from "react-icons/io5";
 
 function Header() {
@@ -121,7 +120,7 @@ function Header() {
                   <a href="./">صفحه اصلی</a>
                 </li>
                 <li className="p-6">
-                  <a href="./profile">پروفایل</a>
+                  <a href="./login">پروفایل</a>
                 </li>
                 <li className="p-6">
                   <a href="/products">محصولات</a>
