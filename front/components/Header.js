@@ -2,9 +2,9 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useState , useRef , useEffect } from "react";
+import Product from "./template/Product";
 
 import { TbMenuDeep } from "react-icons/tb";
-import { IoPersonCircleSharp } from "react-icons/io5";
 import { IoCloseSharp } from "react-icons/io5";
 
 function Header() {
@@ -65,9 +65,9 @@ function Header() {
 
 
   return (
-    <div className="flex justify-center">
+    <div className="flex justify-center flex-col">
       <div className="w-[95%] h-[119px] relative ">
-        <div className="w-full h-[80px] left-0 top-[6px] absolute bg-[#3b6e28] rounded-[20px]"></div>
+        <div className="w-full h-[80px] right-10 top-[6px] absolute bg-[#3b6e28] rounded-[20px]"></div>
         <div className="w-[131px] h-[50px] left-[150px] top-6 absolute text-white text-[25px] font-semibold">
           Total
         </div>
@@ -79,7 +79,7 @@ function Header() {
           className="w-[100px] h-[80px] left-[9px] top-1  absolute"
           src="pic/logo.png"
         />
-        <div className="relative z-50">
+        <div className="relative z-50 right-10">
           {!isOpen && (
             <TbMenuDeep onClick={() => setIsOpen(true)} className="h-14 w-20 mt-[17px] text-white cursor-pointer" />
           )}
@@ -120,19 +120,20 @@ function Header() {
                   <a href="./">صفحه اصلی</a>
                 </li>
                 <li className="p-6">
-                  <a href="./profile">پروفایل</a>
+                  <a href="./login">پروفایل</a>
                 </li>
                 <li className="p-6">
-                  <a href="/dashboardAdmin">محصولات</a>
+                  <a href="/products">محصولات</a>
                 </li>
                 <li className="p-6">
-                  <a href="/costumer">کارکنان</a>
+                  <a href="/staff">کارکنان</a>
                 </li>
               </ul>
             </nav>
           </div>
         </div>
       </div>
+      <Product/>
     </div>
   );
 }

@@ -1,7 +1,6 @@
 import Image from "next/image";
 import localFont from "next/font/local";
-import Header from "@/components/Header";
-import Product from "@/components/template/Product";
+import Index from "./mainPage/index"; 
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -16,7 +15,6 @@ const geistMono = localFont({
 
 export default function Home() {
   return <>
-  <Header/>
-  <Product/>
+    <Index/>
 </>;
 }

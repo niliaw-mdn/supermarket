@@ -1,12 +1,19 @@
 import React from "react";
 import { useRouter } from "next/router";
+import { useState } from "react";
 import { IoArrowBackOutline } from "react-icons/io5";
 
 function Index() {
   const router = useRouter();
 
   const backHandler = () => {
-    router.push("./dashboardAdmin");
+    router.push("./products");
+  };
+
+  const [unit, setUnit] = useState("kg");
+
+  const handleUnitChange = (e) => {
+    setUnit(e.target.value);
   };
 
   return (
@@ -33,7 +40,7 @@ function Index() {
       <div className="flex flex-col justify-center items-center">
         <div className="bg-gray-300 h-auto w-[500px] rounded-lg flex flex-col justify-center items-center">
           <div className="mb-4 font-semibold pt-5 pl-56">
-            :مشخصات محصول را وارد کنید
+            مشخصات محصول را وارد کنید:
           </div>
           <ul className="list-none">
             <li className="py-5">
@@ -50,19 +57,24 @@ function Index() {
                 type="text"
               />
             </li>
-            <li className="py-5">
+            <li className="py-5 flex items-center space-x-2 rtl:space-x-reverse">
               <input
-                className="h-8 w-72 rounded-md p-3"
+                className="h-8 w-40 rounded-md p-3 border border-gray-300"
                 placeholder="مقدار"
-                type="text"
+                type="number"
+                step={unit === "kg" ? "0.1" : "1"} 
+                min="0"
               />
-            </li>
-            <li className="py-5">
-              <input
-                className="h-8 w-72 rounded-md p-3"
-                placeholder="مجموع"
-                type="text"
-              />
+              <select
+                className="h-10 w-32 rounded-md p-2 border border-gray-300 bg-white"
+                value={unit}
+                onChange={handleUnitChange}
+              >
+                <option value="kg">کیلوگرم</option>
+                <option value="number">عدد</option>
+                <option value="liter">لیتر</option>
+                <option value="meter">متر</option>
+              </select>
             </li>
             <li>
               <label
