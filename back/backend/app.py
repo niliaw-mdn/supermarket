@@ -25,7 +25,6 @@ def get_products():
 # returning all entiteis of a specific product
 @app.route('/getProduct', methods=['GET'])
 def get_one_product():
-    print("*")
     product = product_dao.get_product(connection,request.json.get('product_id'))
     response = jsonify(product)
     response.headers.add('Access-Control-Allow-Origin', '*')
@@ -50,10 +49,7 @@ def get_uom():
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
     
-@app.route('/opencamera', methods=['GET'])
-def getcamera():
-    
-    return {"a":1}
+
 
 #Inserting  new product to db
 @app.route('/insertProduct', methods=['POST'])
@@ -105,6 +101,12 @@ def get_all_orders():
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
+
+
+@app.route('/opencamera', methods=['GET'])
+def getcamera():
+    
+    return {"a":1}
 
 
 if __name__ == "__main__":
