@@ -19,9 +19,14 @@ function Index() {
   const addItemHandler = () => router.push("./addItems");
 
   useEffect(() => {
-    axios.get(`https://fakestoreapi.com/products`).then((res) => {
-      setFetchdata(res.data);
-    });
+    axios
+      .get(`http://localhost:5000/getProducts`) 
+      .then((res) => {
+        setFetchdata(res.data);
+      })
+      .catch((err) => {
+        console.error("Error fetching data: ", err);
+      });
   }, []);
 
   const toggleBrandSelection = (brand) => {
@@ -268,7 +273,7 @@ function Index() {
                   />
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
-                  {post.title}
+                  {post.name}
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
                   ${post.price}
