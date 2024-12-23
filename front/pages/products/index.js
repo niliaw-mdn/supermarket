@@ -2,25 +2,27 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { IoArrowBackOutline, IoSearch } from "react-icons/io5";
 import axios from "axios";
+import { FaEdit } from "react-icons/fa";
+import { RiDeleteBin5Fill } from "react-icons/ri";
 
 function Index() {
   const router = useRouter();
   const [fetchdata, setFetchdata] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [openSection, setOpenSection] = useState(null);
-  const [minValue, setMinValue] = useState(1000); 
+  const [minValue, setMinValue] = useState(1000);
   const [maxValue, setMaxValue] = useState(50000);
-  const [isCategoryOpen, setIsCategoryOpen] = useState(false); 
-  const [isPriceOpen, setIsPriceOpen] = useState(false); 
+  const [isCategoryOpen, setIsCategoryOpen] = useState(false);
+  const [isPriceOpen, setIsPriceOpen] = useState(false);
   const [isBrandOpen, setIsBrandOpen] = useState(false);
-  const [selectedBrands, setSelectedBrands] = useState([]); 
+  const [selectedBrands, setSelectedBrands] = useState([]);
 
   const backHandler = () => router.back();
   const addItemHandler = () => router.push("./addItems");
 
   useEffect(() => {
     axios
-      .get(`http://localhost:5000/getProducts`) 
+      .get(`http://localhost:5000/getProducts`)
       .then((res) => {
         setFetchdata(res.data);
       })
@@ -101,7 +103,7 @@ function Index() {
             <div className="relative  w-full">
               <button
                 onClick={() => setIsCategoryOpen(!isCategoryOpen)}
-                 className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
+                className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
               >
                 دسته بندی
                 <svg
@@ -227,17 +229,19 @@ function Index() {
                   <div className="flex flex-col items-center">
                     <div className="flex justify-center w-full mb-4">
                       <ul className="py-1 text-md divide-y-2 text-gray-700 text-center">
-                        {["brand1", "brand2", "brand3", "brand4"].map((option) => (
-                          <li key={option}>
-                            <input
-                              type="checkbox"
-                              checked={selectedBrands.includes(option)}
-                              onChange={() => toggleBrandSelection(option)}
-                              className="ml-2 border rounded-lg p-1 w-28"
-                            />
-                            {option}
-                          </li>
-                        ))}
+                        {["brand1", "brand2", "brand3", "brand4"].map(
+                          (option) => (
+                            <li key={option}>
+                              <input
+                                type="checkbox"
+                                checked={selectedBrands.includes(option)}
+                                onChange={() => toggleBrandSelection(option)}
+                                className="ml-2 border rounded-lg p-1 w-28"
+                              />
+                              {option}
+                            </li>
+                          )
+                        )}
                       </ul>
                     </div>
                     <button
@@ -256,6 +260,7 @@ function Index() {
         <table className="table-auto border-collapse border border-gray-300 w-[80%] text-center">
           <thead className="bg-gray-200">
             <tr>
+              <th className="border border-gray-300 px-4 py-2"></th>
               <th className="border border-gray-300 px-4 py-2">Image</th>
               <th className="border border-gray-300 px-4 py-2">Title</th>
               <th className="border border-gray-300 px-4 py-2">Price</th>
@@ -280,6 +285,20 @@ function Index() {
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
                   {post.category}
+                </td>
+                <td className="flex space-x-4">
+                  <div className="relative group">
+                    <FaEdit className="text-lg" />
+                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-black text-white text-sm rounded-md px-2 py-1">
+                      Edit
+                    </span>
+                  </div>
+                  <div className="relative group">
+                    <RiDeleteBin5Fill className="text-lg" />
+                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-black text-white text-sm rounded-md px-2 py-1">
+                      Delete
+                    </span>
+                  </div>
                 </td>
               </tr>
             ))}
