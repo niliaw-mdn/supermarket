@@ -20,7 +20,7 @@ def get_products():
 
 # tested
 # returning all entiteis of a specific product
-@app.route('/getProduct', methods=['GET'])
+@app.route('/getProduct', methods=['POST'])
 def get_one_product():
     try:
         product_id = request.json.get('product_id')
@@ -70,13 +70,16 @@ def insert_product():
         # Check if request payload is received correctly
         if not request_payload:
             return jsonify({"error": "Invalid JSON payload"}), 400
-            # Assuming product_dao.insert_new_product function and connection are defined elsewhere
-            product_id = product_dao.insert_new_product(mysql.connection, request_payload)
-            return jsonify({'product_id': product_id})
+
+        # Assuming product_dao.insert_new_product function and connection are defined elsewhere
+        product_id = product_dao.insert_new_product(connection, request_payload)
+        return jsonify({'product_id': product_id})
     except Exception as e:
         # Log the exception for debugging
         print(f"Error occurred: {e}")
         return jsonify({"error": str(e)}), 500
+
+
 
 
 # updating a single product in db

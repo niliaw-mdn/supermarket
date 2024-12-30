@@ -75,9 +75,9 @@ def insert_new_product(connection, product):
                 manufacturer_name, weight, purchase_price, discount_percentage, voluminosity,
                 combinations, nutritional_information, expiration_date, storage_conditions,
                 number_sold, date_added_to_stock, total_profit_on_sales, error_rate_in_weight)
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""")  # this line has too be complete
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""")
 
-    data = (product['product_name'], product['uom_id'], product['price_per_unit'], product['available_quantity'],
+    data = (product['name'], product['uom_id'], product['price_per_unit'], product['available_quantity'],
             product['manufacturer_name'], product['weight'], product['purchase_price'],
             product['discount_percentage'], product['voluminosity'], product['combinations'],
             product['nutritional_information'], product['expiration_date'], product['storage_conditions'], product['number_sold'],
@@ -87,6 +87,7 @@ def insert_new_product(connection, product):
     connection.commit()
 
     return cursor.lastrowid
+
 
 
 def delete_product(connection, product_id):
