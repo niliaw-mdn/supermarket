@@ -5,13 +5,13 @@ def get_all_products(connection):
     cursor = connection.cursor()
 
     query = ("SELECT  product.product_id, product.name, product.uom_id, product.price_per_unit, "
-            "product.available_quantity, uom.uom_name FROM grocery_store.product inner join uom on "
+            "product.available_quantity, image_address, uom.uom_name FROM grocery_store.product inner join uom on "
             "product.uom_id=uom.uom_id;")
 
     cursor.execute(query)
 
     response = []
-    for (product_id, name, uom_id, price_per_unit, available_quantity, uom_name) in cursor:
+    for (product_id, name, uom_id, price_per_unit, available_quantity, uom_name, image_address) in cursor:
         response.append(
             {
                 'product_id': product_id,
@@ -20,6 +20,7 @@ def get_all_products(connection):
                 'price_per_unit': price_per_unit,
                 'uom_name': uom_name,
                 'available_quantity': available_quantity,
+                'image_address': image_address
             }
         )
 
@@ -32,7 +33,7 @@ def get_product(connection, product_id):
     query = ("""SELECT product.product_id, product.name, product.uom_id, product.price_per_unit, 
     product.available_quantity, manufacturer_name, weight, purchase_price, discount_percentage, voluminosity, 
     combinations, nutritional_information, expiration_date, storage_conditions, number_sold, date_added_to_stock, 
-    total_profit_on_sales, error_rate_in_weight, uom.uom_name FROM grocery_store.product join uom on 
+    total_profit_on_sales, error_rate_in_weight, image_address, uom.uom_name FROM grocery_store.product join uom on 
     product.uom_id=uom.uom_id WHERE product.product_id = %s""")
 
     cursor.execute(query, (product_id,))
@@ -43,25 +44,25 @@ def get_product(connection, product_id):
         return None
 
     response = {
-        'product_id': product[0],
-        'name': product[1],
-        'uom_id': product[2],
-        'price_per_unit': product[3],
-        'available_quantity': product[4],
-        'manufacturer_name': product[5],
-        'weight': product[6],
-        'purchase_price': product[7],
-        'discount_percentage': product[8],
-        'voluminosity': product[9],
-        'combinations': product[10],
-        'nutritional_information': product[11],
-        'expiration_date': product[12],
-        'storage_conditions': product[13],
-        'number_sold': product[14],
-        'date_added_to_stock': product[15],
-        'total_profit_on_sales': product[16],
-        'error_rate_in_weight': product[17],
-        'uom_name': product[18]
+        'name': product[0],
+        'uom_id': product[1],
+        'price_per_unit': product[2],
+        'available_quantity': product[3],
+        'manufacturer_name': product[4],
+        'weight': product[5],
+        'purchase_price': product[6],
+        'discount_percentage': product[7],
+        'voluminosity': product[8],
+        'combinations': product[9],
+        'nutritional_information': product[10],
+        'expiration_date': product[11],
+        'storage_conditions': product[12],
+        'number_sold': product[13],
+        'date_added_to_stock': product[14],
+        'total_profit_on_sales': product[15],
+        'error_rate_in_weight': product[16],
+        'uom_name': product[17],
+        'image_address': product[18]
     }
 
     return response
@@ -74,14 +75,14 @@ def insert_new_product(connection, product):
     query = ("""insert into product (name, uom_id, price_per_unit, available_quantity,
                 manufacturer_name, weight, purchase_price, discount_percentage, voluminosity,
                 combinations, nutritional_information, expiration_date, storage_conditions,
-                number_sold, date_added_to_stock, total_profit_on_sales, error_rate_in_weight)
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""")
+                number_sold, date_added_to_stock, total_profit_on_sales, error_rate_in_weight, image_address)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""")
 
     data = (product['name'], product['uom_id'], product['price_per_unit'], product['available_quantity'],
             product['manufacturer_name'], product['weight'], product['purchase_price'],
             product['discount_percentage'], product['voluminosity'], product['combinations'],
             product['nutritional_information'], product['expiration_date'], product['storage_conditions'], product['number_sold'],
-            product['date_added_to_stock'], product['total_profit_on_sales'], product['error_rate_in_weight'])
+            product['date_added_to_stock'], product['total_profit_on_sales'], product['error_rate_in_weight'], product['image_address'])
 
     cursor.execute(query, data)
     connection.commit()
@@ -109,7 +110,7 @@ def update_product(connection, product_id, product_data):
         'manufacturer_name', 'weight', 'purchase_price', 'discount_percentage',
         'voluminosity', 'combinations', 'nutritional_information', 'expiration_date',
         'storage_conditions', 'number_sold', 'date_added_to_stock', 'total_profit_on_sales',
-        'error_rate_in_weight'
+        'error_rate_in_weight', 'image_address'
     ]
 
     # Ensure all expected keys are present
