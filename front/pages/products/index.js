@@ -25,6 +25,7 @@ function Index() {
       .get(`http://localhost:5000/getProducts`)
       .then((res) => {
         setFetchdata(res.data);
+        console.log(fetchdata)
       })
       .catch((err) => {
         console.error("Error fetching data: ", err);
@@ -268,23 +269,18 @@ function Index() {
             </tr>
           </thead>
           <tbody>
-            {filteredData.map((post) => (
-              <tr key={post.id} className="odd:bg-white even:bg-gray-100">
+            {filteredData.reverse().map((post) => (
+              <tr key={post.product_id} className="odd:bg-white even:bg-gray-100">
                 <td className="border border-gray-300 px-4 py-2">
-                  <img
-                    className="h-16 w-16 object-contain mx-auto"
-                    src={post.image}
-                    alt={post.title}
-                  />
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
                   {post.name}
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
-                  ${post.price}
+                  ${post.price_per_unit}
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
-                  {post.category}
+                  {post.available_quantity}
                 </td>
                 <td className="flex space-x-4">
                   <div className="relative group">

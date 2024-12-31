@@ -15,15 +15,13 @@ connection = get_sql_connection()
 def get_products():
     products = product_dao.get_all_products(connection)
     response = jsonify(products)
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    return jsonify(response)
+    return response
 
 # tested
 # returning all entiteis of a specific product
-@app.route('/getProduct', methods=['POST'])
-def get_one_product():
+@app.route('/getProduct/<int:product_id>', methods=['GET'])
+def get_one_product(product_id):
     try:
-        product_id = request.json.get('product_id')
         product = product_dao.get_product(connection, product_id)
 
         if product is None:
@@ -35,6 +33,7 @@ def get_one_product():
     except Exception as e:
         print(f"Error occurred: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 
 # tested
@@ -58,7 +57,7 @@ def get_uom():
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
-
+# tested
 # Inserting  new product to db
 @app.route('/insertProduct', methods=['POST'])
 def insert_product():
@@ -81,19 +80,22 @@ def insert_product():
 
 
 
-
+#tested
 # updating a single product in db
 @app.route('/updateProduct/<int:product_id>', methods=['PUT'])
-def update_product_route(connection, product_id):
+def update_product_route(product_id):
     try:
         request_payload = request.json
         if not request_payload:
             return jsonify({"error": "Invalid JSON payload"}), 400
+        
         product_dao.update_product(connection, product_id, request_payload)
         return jsonify({'message': 'Product updated successfully'})
     except Exception as e:
         print(f"Error occurred: {e}")
         return jsonify({"error": str(e)}), 500
+
+
 
 
 @app.route('/insertOrder', methods=['POST'])

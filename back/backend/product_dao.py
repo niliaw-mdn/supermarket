@@ -32,40 +32,40 @@ def get_product(connection, product_id):
     query = ("""SELECT product.product_id, product.name, product.uom_id, product.price_per_unit, 
     product.available_quantity, manufacturer_name, weight, purchase_price, discount_percentage, voluminosity, 
     combinations, nutritional_information, expiration_date, storage_conditions, number_sold, date_added_to_stock, 
-    total_profit_on_sales, error_rate_in_weight, uom.uom_name FROM grocery_store.product inner join uom on 
-    product.uom_id=uom.uom_id WHERE product_id="""+str(product_id))
+    total_profit_on_sales, error_rate_in_weight, uom.uom_name FROM grocery_store.product join uom on 
+    product.uom_id=uom.uom_id WHERE product.product_id = %s""")
 
-    cursor.execute(query)
+    cursor.execute(query, (product_id,))
 
-    response = []
-    for (product_id, name, uom_id, price_per_unit, available_quantity, uom_name, manufacturer_name, weight, purchase_price,
-        discount_percentage, voluminosity, combinations, nutritional_information, expiration_date, storage_conditions,
-        number_sold, date_added_to_stock, total_profit_on_sales, error_rate_in_weight) in cursor:
-        response.append(
-            {
-                'product_id': product_id,
-                'name': name,
-                'uom_id': uom_id,
-                'price_per_unit': price_per_unit,
-                'uom_name': uom_name,
-                'available_quantity': available_quantity,
-                'manufacturer_name': manufacturer_name,
-                'weight': weight,
-                'purchase_price': purchase_price,
-                'discount_percentage': discount_percentage,
-                'voluminosity': voluminosity,
-                'combinations': combinations,
-                'nutritional_information': nutritional_information,
-                'expiration_date': expiration_date,
-                'storage_conditions': storage_conditions,
-                'number_sold': number_sold,
-                'date_added_to_stock': date_added_to_stock,
-                'total_profit_on_sales': total_profit_on_sales,
-                'error_rate_in_weight': error_rate_in_weight
-            }
-        )
+    product = cursor.fetchone()
+
+    if product is None:
+        return None
+
+    response = {
+        'product_id': product[0],
+        'name': product[1],
+        'uom_id': product[2],
+        'price_per_unit': product[3],
+        'available_quantity': product[4],
+        'manufacturer_name': product[5],
+        'weight': product[6],
+        'purchase_price': product[7],
+        'discount_percentage': product[8],
+        'voluminosity': product[9],
+        'combinations': product[10],
+        'nutritional_information': product[11],
+        'expiration_date': product[12],
+        'storage_conditions': product[13],
+        'number_sold': product[14],
+        'date_added_to_stock': product[15],
+        'total_profit_on_sales': product[16],
+        'error_rate_in_weight': product[17],
+        'uom_name': product[18]
+    }
 
     return response
+
 
 
 def insert_new_product(connection, product):
@@ -103,7 +103,21 @@ def delete_product(connection, product_id):
 def update_product(connection, product_id, product_data):
     cursor = connection.cursor()
 
-    sql = """ UPDATE products SET product_name = %s,
+    # Define the expected keys
+    expected_keys = [
+        'name', 'uom_id', 'price_per_unit', 'available_quantity',
+        'manufacturer_name', 'weight', 'purchase_price', 'discount_percentage',
+        'voluminosity', 'combinations', 'nutritional_information', 'expiration_date',
+        'storage_conditions', 'number_sold', 'date_added_to_stock', 'total_profit_on_sales',
+        'error_rate_in_weight'
+    ]
+
+    # Ensure all expected keys are present
+    for key in expected_keys:
+        if key not in product_data:
+            raise ValueError(f"Missing key: {key}")
+
+    sql = """ UPDATE product SET name = %s,
                 uom_id = %s,
                 price_per_unit = %s,
                 available_quantity = %s,
@@ -122,14 +136,14 @@ def update_product(connection, product_id, product_data):
                 error_rate_in_weight = %s
                 WHERE product_id = %s """
 
-    values = (product_data['product_name'], product_data['uom_id'], product_data['price_per_unit'],
-            product_data['available_quantity'], product_data['manufacturer_name'],
-            product_data['weight'], product_data['purchase_price'], product_data['discount_percentage'],
-            product_data['voluminosity'], product_data['combinations'], product_data['nutritional_information'],
-            product_data['expiration_date'], product_data['storage_conditions'], product_data['number_sold'],
-            product_data['date_added_to_stock'], product_data['total_profit_on_sales'],
-            product_data['error_rate_in_weight'],
-            product_id)
+    values = (product_data['name'], product_data['uom_id'], product_data['price_per_unit'],
+                product_data['available_quantity'], product_data['manufacturer_name'],
+                product_data['weight'], product_data['purchase_price'], product_data['discount_percentage'],
+                product_data['voluminosity'], product_data['combinations'], product_data['nutritional_information'],
+                product_data['expiration_date'], product_data['storage_conditions'], product_data['number_sold'],
+                product_data['date_added_to_stock'], product_data['total_profit_on_sales'],
+                product_data['error_rate_in_weight'],
+                product_id)
 
     cursor.execute(sql, values)
     connection.commit()
