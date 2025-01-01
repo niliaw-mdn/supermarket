@@ -44,25 +44,26 @@ def get_product(connection, product_id):
         return None
 
     response = {
-        'name': product[0],
-        'uom_id': product[1],
-        'price_per_unit': product[2],
-        'available_quantity': product[3],
-        'manufacturer_name': product[4],
-        'weight': product[5],
-        'purchase_price': product[6],
-        'discount_percentage': product[7],
-        'voluminosity': product[8],
-        'combinations': product[9],
-        'nutritional_information': product[10],
-        'expiration_date': product[11],
-        'storage_conditions': product[12],
-        'number_sold': product[13],
-        'date_added_to_stock': product[14],
-        'total_profit_on_sales': product[15],
-        'error_rate_in_weight': product[16],
-        'uom_name': product[17],
-        'image_address': product[18]
+        'product_id': product[0],
+        'name': product[1],
+        'uom_id': product[2],
+        'price_per_unit': product[3],
+        'available_quantity': product[4],
+        'manufacturer_name': product[5],
+        'weight': product[6],
+        'purchase_price': product[7],
+        'discount_percentage': product[8],
+        'voluminosity': product[9],
+        'combinations': product[10],
+        'nutritional_information': product[11],
+        'expiration_date': product[12],
+        'storage_conditions': product[13],
+        'number_sold': product[14],
+        'date_added_to_stock': product[15],
+        'total_profit_on_sales': product[16],
+        'error_rate_in_weight': product[17],
+        'uom_name': product[18],
+        'image_address': product[19]
     }
 
     return response
@@ -134,8 +135,11 @@ def update_product(connection, product_id, product_data):
                 number_sold = %s,
                 date_added_to_stock = %s,
                 total_profit_on_sales = %s,
-                error_rate_in_weight = %s
-                WHERE product_id = %s """
+                error_rate_in_weight = %s,
+                image_address = %s 
+                WHERE product_id = %s
+                """
+                
 
     values = (product_data['name'], product_data['uom_id'], product_data['price_per_unit'],
                 product_data['available_quantity'], product_data['manufacturer_name'],
@@ -143,7 +147,7 @@ def update_product(connection, product_id, product_data):
                 product_data['voluminosity'], product_data['combinations'], product_data['nutritional_information'],
                 product_data['expiration_date'], product_data['storage_conditions'], product_data['number_sold'],
                 product_data['date_added_to_stock'], product_data['total_profit_on_sales'],
-                product_data['error_rate_in_weight'],
+                product_data['error_rate_in_weight'],product_data['image_address'],
                 product_id)
 
     cursor.execute(sql, values)

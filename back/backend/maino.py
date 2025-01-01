@@ -13,6 +13,7 @@ UPLOAD_FOLDER='./productimages'
 app = Flask(__name__)
 
 app.config['UPLOAD_FOLDER']= UPLOAD_FOLDER
+
 connection = get_sql_connection()
 
 # tested
@@ -110,7 +111,7 @@ def insert_product():
     #         return jsonify({"error": "Invalid JSON payload"}), 400
 
     #     # Assuming product_dao.insert_new_product function and connection are defined elsewhere
-    product_id = product_dao.insert_new_product(connection, request_payload)
+    #     product_id = product_dao.insert_new_product(connection, request_payload)
     #     return jsonify({'product_id': product_id})
     # except Exception as e:
     #     # Log the exception for debugging
@@ -119,7 +120,7 @@ def insert_product():
 
 
 
-#tested
+#image update missing
 # updating a single product in db
 @app.route('/updateProduct/<int:product_id>', methods=['PUT'])
 def update_product_route(product_id):
