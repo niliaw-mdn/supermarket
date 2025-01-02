@@ -30,16 +30,14 @@ app.config["MYSQL_CURSORCLASS"] = "DictCursor"
 
 connection = get_sql_connection()
 
-
+# tested
 @app.route("/register", methods=["POST"])
 def register_user():
     user_email = request.json["email"]
     user_password = request.json["password"]
     user_confirm_password = request.json["confirm_password"]
 
-    if user_password == user_confirm_password and validate_user_input(
-        "authentication", email=user_email, password=user_password
-    ):
+    if user_password == user_confirm_password and validate_user_input(email=user_email, password=user_password):
         password_salt = generate_salt()
         password_hash = generate_hash(user_password, password_salt)
 
@@ -56,17 +54,23 @@ def register_user():
         # Registration Failed
         return Response(status=400)
 
+
 @app.route("/login", methods=["POST"])
 def login_user():
-    user_email = request.json["email"]
-    user_password = request.json["password"]
+    try:
+        user_email = request.json["email"]
+        user_password = request.json["password"]
 
-    user_token = validate_user(user_email, user_password)
+        user_token = validate_user(connection, user_email, user_password)
 
-    if user_token:
-        return jsonify({"jwt_token": user_token})
-    else:
-        Response(status=401)
+        if user_token:
+            return jsonify({"jwt_token": user_token})
+        else:
+            return Response(status=401)
+    except Exception as e:
+        print(f"Error in login_user: {e}")  # Log the error for debugging purposes
+        return Response(status=500)
+
 
 
 
