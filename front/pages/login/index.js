@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import toast, { Toaster } from "react-hot-toast"; 
 import { useRouter } from "next/router";
+import Header from "@/components/Header";
 
 function Index() {
   const [userName, setUserName] = useState("");
@@ -13,7 +14,7 @@ function Index() {
       toast.error("لطفا اطلاعات را درست وارد کنید.");
     } else {
       toast.success("با موفقیت وارد شدید.");
-      router.push("/profile");
+      router.push("./mainPage")
     }
   };
 

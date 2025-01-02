@@ -25,7 +25,6 @@ function Index() {
       .get(`http://localhost:5000/getProducts`)
       .then((res) => {
         setFetchdata(res.data);
-        console.log(fetchdata)
       })
       .catch((err) => {
         console.error("Error fetching data: ", err);
@@ -38,8 +37,9 @@ function Index() {
     );
   };
 
-  const filteredData = fetchdata.filter((item) =>
-    item.title.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredData = fetchdata.filter(
+    (item) =>
+      item.title && item.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const toggleSection = (section) => {
@@ -261,17 +261,35 @@ function Index() {
         <table className="table-auto border-collapse border border-gray-300 w-[80%] text-center">
           <thead className="bg-gray-200">
             <tr>
-              <th className="border border-gray-300 px-4 py-2"></th>
+              <th className="border border-gray-300 px-4 py-2">Actions</th>
               <th className="border border-gray-300 px-4 py-2">Image</th>
               <th className="border border-gray-300 px-4 py-2">Title</th>
               <th className="border border-gray-300 px-4 py-2">Price</th>
-              <th className="border border-gray-300 px-4 py-2">Category</th>
+              <th className="border border-gray-300 px-4 py-2">Supply</th>
             </tr>
           </thead>
           <tbody>
-            {filteredData.reverse().map((post) => (
-              <tr key={post.product_id} className="odd:bg-white even:bg-gray-100">
+            {fetchdata.map((post) => (
+              <tr
+                key={post.product_id}
+                className="odd:bg-white even:bg-gray-100"
+              >
+                <td className="flex justify-center border border-gray-300 px-4 py-4">
+                  <div className="relative group">
+                    <FaEdit className="text-lg text-green-400" size={30}/>
+                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-black text-white text-sm rounded-md px-2 py-1">
+                      Edit
+                    </span>
+                  </div>
+                  <div className="relative group ml-4">
+                    <RiDeleteBin5Fill className="text-lg text-red-400" size={30} />
+                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-black text-white text-sm rounded-md px-2 py-1">
+                      Delete
+                    </span>
+                  </div>
+                </td>
                 <td className="border border-gray-300 px-4 py-2">
+                  {/* Image Placeholder */}
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
                   {post.name}
@@ -281,20 +299,6 @@ function Index() {
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
                   {post.available_quantity}
-                </td>
-                <td className="flex space-x-4">
-                  <div className="relative group">
-                    <FaEdit className="text-lg" />
-                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-black text-white text-sm rounded-md px-2 py-1">
-                      Edit
-                    </span>
-                  </div>
-                  <div className="relative group">
-                    <RiDeleteBin5Fill className="text-lg" />
-                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-black text-white text-sm rounded-md px-2 py-1">
-                      Delete
-                    </span>
-                  </div>
                 </td>
               </tr>
             ))}

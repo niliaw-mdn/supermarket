@@ -16,7 +16,7 @@ function Product() {
             <Webcam
               audio={false}
               ref={webcamRef}
-              className="w-[500px] h-[700px] object-cover rounded-md absolute top-28 right-10"
+              className="w-[800px] h-[700px] object-cover rounded-md absolute top-28 right-10"
             />
           </div>
 
