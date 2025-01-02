@@ -1,10 +1,20 @@
 import json
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
+from werkzeug.security import generate_password_hash, check_password_hash
 import uom_dao
 import product_dao
 from sql_connection import get_sql_connection
 import orders_dao
 import os
+from flask import Blueprint, request, Response, jsonify
+from user_dao import validate_user_input, generate_salt, generate_hash, db_write, validate_user
+from sql_connection import get_sql_connection
+
+from flask import Flask
+from flask_cors import CORS
+from flask_mysqldb import MySQL
+from settings import MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB
+
 UPLOAD_FOLDER='./productimages'
 
 
@@ -13,8 +23,54 @@ UPLOAD_FOLDER='./productimages'
 app = Flask(__name__)
 
 app.config['UPLOAD_FOLDER']= UPLOAD_FOLDER
+app.config["MYSQL_USER"] = MYSQL_USER
+app.config["MYSQL_PASSWORD"] = MYSQL_PASSWORD
+app.config["MYSQL_DB"] = MYSQL_DB
+app.config["MYSQL_CURSORCLASS"] = "DictCursor"
 
 connection = get_sql_connection()
+
+
+@app.route("/register", methods=["POST"])
+def register_user():
+    user_email = request.json["email"]
+    user_password = request.json["password"]
+    user_confirm_password = request.json["confirm_password"]
+
+    if user_password == user_confirm_password and validate_user_input(
+        "authentication", email=user_email, password=user_password
+    ):
+        password_salt = generate_salt()
+        password_hash = generate_hash(user_password, password_salt)
+
+        if db_write(connection ,
+            """INSERT INTO grocery_store.user (email, password_salt, password_hash) VALUES (%s, %s, %s)""",
+            (user_email, password_salt, password_hash),
+        ):
+            # Registration Successful
+            return Response(status=201)
+        else:
+            # Registration Failed
+            return Response(status=409)
+    else:
+        # Registration Failed
+        return Response(status=400)
+
+@app.route("/login", methods=["POST"])
+def login_user():
+    user_email = request.json["email"]
+    user_password = request.json["password"]
+
+    user_token = validate_user(user_email, user_password)
+
+    if user_token:
+        return jsonify({"jwt_token": user_token})
+    else:
+        Response(status=401)
+
+
+
+
 
 # tested
 # returning all products in db
