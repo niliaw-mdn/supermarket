@@ -56,6 +56,22 @@ function Index() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const deleteProduct = async (productId) => {
+    try {
+      const response = await axios.post("http://localhost:5000/deleteProduct", {
+        product_id: productId,
+      });
+      
+      if (response.status === 200) {
+        
+        setFetchdata(fetchdata.filter((product) => product.product_id !== productId));
+      }
+    } catch (err) {
+      console.error("Error deleting product: ", err);
+      alert("An error occurred while deleting the product.");
+    }
+  };
+
   return (
     <>
       <div className="flex justify-center">
@@ -282,14 +298,26 @@ function Index() {
                     </span>
                   </div>
                   <div className="relative group ml-4">
-                    <RiDeleteBin5Fill className="text-lg text-red-400" size={30} />
+                    <RiDeleteBin5Fill
+                      className="text-lg text-red-400"
+                      size={30}
+                      onClick={() => {
+                        if (window.confirm('از پاک کردن این محصول مطمئن هستید؟')) {
+                          deleteProduct(post.product_id);
+                        }
+                      }}
+                    />
                     <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-black text-white text-sm rounded-md px-2 py-1">
                       Delete
                     </span>
                   </div>
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
-                  {/* Image Placeholder */}
+                <img
+                src={`http://localhost:5000/productimage/${post.image}`}
+                alt={`Product ${post.product_id}`}
+                className="h-16 w-16 object-cover"
+                />
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
                   {post.name}
