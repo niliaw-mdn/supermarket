@@ -21,7 +21,7 @@ function Header() {
   }, []);
 
   if (showHeader) {
-    router.push("./login");
+    router.push("./register");
   }
 
   return (
