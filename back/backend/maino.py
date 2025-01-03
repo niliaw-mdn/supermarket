@@ -54,7 +54,7 @@ def register_user():
         # Registration Failed
         return Response(status=400)
 
-
+# have a bug in here
 @app.route("/login", methods=["POST"])
 def login_user():
     try:
