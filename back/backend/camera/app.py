@@ -26,7 +26,7 @@ def generate_frames():
     global latest_detections, detection_counts, stop_camera, start_time
 
     while True:
-        if stop_camera or (time.time() - start_time > 5):  # Run for 5 seconds
+        if stop_camera or (time.time() - start_time > 10):  # Run for 5 seconds
             print("Stopping the camera after 5 seconds...")
             break
 
@@ -39,6 +39,9 @@ def generate_frames():
             # Detect objects
             results = model(frame)[0]
             detections = sv.Detections.from_ultralytics(results)
+            
+            # Get class names
+            class_names = results.names
             
             # Update the global detection results
             latest_detections = [{'label': detection[0], 'confidence': detection[1]} for detection in zip(detections.class_id, detections.confidence)]
@@ -66,7 +69,7 @@ def generate_frames():
 
     # Stop the camera
     camera.release()
-    most_detected_label = max(detection_counts, key=detection_counts.get, default=None)
+    most_detected_label = class_names[ max(detection_counts, key=detection_counts.get, default=None)]
     print(f"Most detected label: {most_detected_label}")  # Print the most detected label
     return most_detected_label
 
