@@ -39,6 +39,7 @@ connection = get_sql_connection()
 app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
 app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(hours=3)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 jwt = JWTManager(app)
 
 # In-memory storage for revoked tokens
@@ -55,16 +56,23 @@ def check_if_token_revoked(jwt_header, jwt_payload):
 def handle_expired_token(jwt_header, jwt_payload):
     token_id = jwt_payload['jti']
     revoked_tokens.add(token_id)
-    return jsonify({'message': 'Token has expired. You have been logged out.'}), 401
+    return jsonify({'message': 'Token has expired. Please log in again.'}), 401
 
+# Middleware: Check JWT Token for All Requests
 @app.before_request
 def check_request_token():
-    if request.endpoint in ['login', 'register']:
+    # Allow these routes without requiring a token
+    unprotected_routes = ['login', 'register', 'refresh']
+    if request.endpoint in unprotected_routes or request.endpoint is None:
         return None
+
     try:
-        get_jwt_identity()
-    except Exception:
-        pass
+        get_jwt_identity()  # Validate JWT token
+    except Exception as e:
+        return jsonify({'message': 'Unauthorized. Invalid or expired token.', 'error': str(e)}), 401
+
+
+
 
 # Route: Register New User
 @app.route('/register', methods=['POST'])
@@ -159,12 +167,11 @@ def get_user():
 @jwt_required()
 def get_all_users():
     user_id = get_jwt_identity()
-    if user_id != 1:
+    if user_id != 1:  # Only admin (user_id = 1) is authorized
         return jsonify({'message': 'You are not authorized to access this endpoint'}), 403
 
     users = fetch_all_users()
     return jsonify(users), 200
-
 
 
 # tested
@@ -188,55 +195,47 @@ def detections():
 
 # tested
 # returning all products in db
+# Product APIs
 @app.route('/getProducts', methods=['GET'])
+@jwt_required()
 def get_products():
     products = product_dao.get_all_products(connection)
-    response = jsonify(products)
-    return response
+    return jsonify(products)
 
 # tested
 # returning all entiteis of a specific product
+# Product APIs
 @app.route('/getProduct/<int:product_id>', methods=['GET'])
+@jwt_required()
 def get_one_product(product_id):
-    try:
-        product = product_dao.get_product(connection, product_id)
-
-        if product is None:
-            return jsonify({"error": "Product not found"}), 404
-
-        response = jsonify(product)
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        return response
-    except Exception as e:
-        print(f"Error occurred: {e}")
-        return jsonify({"error": str(e)}), 500
+    product = product_dao.get_product(connection, product_id)
+    if product is None:
+        return jsonify({"error": "Product not found"}), 404
+    return jsonify(product)
 
 
 
 # tested
 # delete one specific product
 @app.route('/deleteProduct', methods=['POST'])
+@jwt_required()
 def delete_product():
     return_id = product_dao.delete_product(connection, request.json.get('product_id'))
-    response = jsonify({
-        'product_id': return_id
-
-    })
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    return response
+    return jsonify({'product_id': return_id})
 
 # tested
 # return all unites of mesurment
 @app.route('/getUOM', methods=['GET'])
+@jwt_required()
 def get_uom():
     response = uom_dao.get_uoms(connection)
     response = jsonify(response)
-    response.headers.add('Access-Control-Allow-Origin', '*')
     return response
 
 # tested
 # Inserting  new product to db
 @app.route('/insertProduct', methods=['POST'])
+@jwt_required()
 def insert_product():
     """productname = request.form.get('name')
     productdescription = request.form.get('description')
@@ -269,8 +268,7 @@ def insert_product():
     product['error_rate_in_weight']=request.form.get('error_rate_in_weight')
     product['image_address'] = file_path
     product_dao.insert_new_product(connection, product=product)
-    print('ssdds')
-    return {"null":1}
+    return jsonify({'message': 'Product added successfully'})
     # try:
     #     print("Request received")
     #     request_payload = request.get_json()
@@ -293,38 +291,39 @@ def insert_product():
 #image update missing
 # updating a single product in db
 @app.route('/updateProduct/<int:product_id>', methods=['PUT'])
+@jwt_required()
 def update_product_route(product_id):
-    try:
-        request_payload = request.json
-        if not request_payload:
-            return jsonify({"error": "Invalid JSON payload"}), 400
-        
-        product_dao.update_product(connection, product_id, request_payload)
-        return jsonify({'message': 'Product updated successfully'})
-    except Exception as e:
-        print(f"Error occurred: {e}")
-        return jsonify({"error": str(e)}), 500
+    request_payload = request.json
+    if not request_payload:
+        return jsonify({"error": "Invalid JSON payload"}), 400
+    product_dao.update_product(connection, product_id, request_payload)
+    return jsonify({'message': 'Product updated successfully'})
 
 
 
 
+# Orders APIs
 @app.route('/insertOrder', methods=['POST'])
+@jwt_required()
 def insert_order():
     request_payload = json.loads(request.form['date'])
     order_id = orders_dao.insert_order(connection, request_payload)
-    response = jsonify({
-        'order_id': order_id
-    })
+    return jsonify({'order_id': order_id})
+    
 
 
 @app.route('/getAllOrders', methods=['GET'])
+@jwt_required()
 def get_all_orders():
     response = orders_dao.get_all_orders(connection)
-    response = jsonify(response)
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    return response
+    return jsonify(response)
 
 
 if __name__ == "__main__":
     threading.Thread(target=generate_frames).start()
     app.run(port=5000,debug=True, threaded=True)
+
+
+
+
+
