@@ -1,7 +1,6 @@
 import json
 import threading
-from flask import Flask, request, jsonify, make_response, render_template,Response
-from werkzeug.security import generate_password_hash, check_password_hash
+from flask import Flask, request, jsonify, make_response, render_template, Response
 import camera_dao
 import uom_dao
 import product_dao
@@ -9,13 +8,20 @@ from sql_connection import get_sql_connection
 import orders_dao
 import os
 from flask import Blueprint, request, Response, jsonify
-from user_dao import validate_user_input, generate_salt, generate_hash, db_write, validate_user
 from sql_connection import get_sql_connection
 from camera_dao import generate_frames, detection_counts
 
-from flask_cors import CORS
-from flask_mysqldb import MySQL
-from settings import MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB
+from flask_jwt_extended import (
+    JWTManager, create_access_token, create_refresh_token,
+    jwt_required, get_jwt_identity, get_jwt
+)
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import timedelta
+import uuid
+
+# Import database methods from db_methods.py
+from user_dao import fetch_user_by_email, create_user, delete_user_by_id, fetch_all_users, fetch_user_by_id
+
 
 UPLOAD_FOLDER='./productimages'
 
@@ -24,54 +30,141 @@ UPLOAD_FOLDER='./productimages'
 
 app = Flask(__name__)
 
-app.config['UPLOAD_FOLDER']= UPLOAD_FOLDER
-app.config["MYSQL_USER"] = MYSQL_USER
-app.config["MYSQL_PASSWORD"] = MYSQL_PASSWORD
-app.config["MYSQL_DB"] = MYSQL_DB
-app.config["MYSQL_CURSORCLASS"] = "DictCursor"
 
 connection = get_sql_connection()
 
-# tested
-@app.route("/register", methods=["POST"])
-def register_user():
-    user_email = request.json["email"]
-    user_password = request.json["password"]
-    user_confirm_password = request.json["confirm_password"]
 
-    if user_password == user_confirm_password and validate_user_input(email=user_email, password=user_password):
-        password_salt = generate_salt()
-        password_hash = generate_hash(user_password, password_salt)
 
-        if db_write(connection ,
-            """INSERT INTO grocery_store.user (email, password_salt, password_hash) VALUES (%s, %s, %s)""",
-            (user_email, password_salt, password_hash),
-        ):
-            # Registration Successful
-            return Response(status=201)
-        else:
-            # Registration Failed
-            return Response(status=409)
-    else:
-        # Registration Failed
-        return Response(status=400)
+# Configure JWT Secret Key and Token Expiry Times
+app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(hours=3)
+jwt = JWTManager(app)
 
-# have a bug in here
-@app.route("/login", methods=["POST"])
-def login_user():
+# In-memory storage for revoked tokens
+revoked_tokens = set()
+
+# Callback: Check if a Token is Revoked or Expired
+@jwt.token_in_blocklist_loader
+def check_if_token_revoked(jwt_header, jwt_payload):
+    token_id = jwt_payload['jti']
+    return token_id in revoked_tokens
+
+# Callback: Handle Expired Tokens
+@jwt.expired_token_loader
+def handle_expired_token(jwt_header, jwt_payload):
+    token_id = jwt_payload['jti']
+    revoked_tokens.add(token_id)
+    return jsonify({'message': 'Token has expired. You have been logged out.'}), 401
+
+@app.before_request
+def check_request_token():
+    if request.endpoint in ['login', 'register']:
+        return None
     try:
-        user_email = request.json["email"]
-        user_password = request.json["password"]
+        get_jwt_identity()
+    except Exception:
+        pass
 
-        user_token = validate_user(connection, user_email, user_password)
+# Route: Register New User
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
 
-        if user_token:
-            return jsonify({"jwt_token": user_token})
-        else:
-            return Response(status=401)
-    except Exception as e:
-        print(f"Error in login_user: {e}")  # Log the error for debugging purposes
-        return Response(status=500)
+    if not email or not password:
+        return jsonify({'message': 'Email and password are required'}), 400
+
+    if fetch_user_by_email(email):
+        return jsonify({'message': 'Email already exists'}), 409
+
+    password_salt = str(uuid.uuid4())
+    password_hash = generate_password_hash(password + password_salt)
+    create_user(email, password_hash, password_salt)
+
+    return jsonify({'message': 'User registered successfully'}), 201
+
+# Route: Login User
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+
+    if not email or not password:
+        return jsonify({'message': 'Email and password are required'}), 400
+
+    user = fetch_user_by_email(email)
+    if not user:
+        return jsonify({'message': 'Invalid email or password'}), 401
+
+    password_hash = user['password_hash']
+    password_salt = user['password_salt']
+
+    if not check_password_hash(password_hash, password + password_salt):
+        return jsonify({'message': 'Invalid email or password'}), 401
+
+    access_token = create_access_token(identity=user['user_id'])
+    refresh_token = create_refresh_token(identity=user['user_id'])
+    return jsonify({'access_token': access_token, 'refresh_token': refresh_token}), 200
+
+
+
+# Route: Refresh Access Token
+@app.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def refresh():
+    user_id = get_jwt_identity()
+    new_access_token = create_access_token(identity=user_id)
+    return jsonify({'access_token': new_access_token}), 200
+
+# Route: Logout (Access Token)
+@app.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    jti = get_jwt()['jti']
+    revoked_tokens.add(jti)
+    return jsonify({'message': 'Access token successfully revoked'}), 200
+
+# Route: Logout (Refresh Token)
+@app.route('/logout-refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def logout_refresh():
+    jti = get_jwt()['jti']
+    revoked_tokens.add(jti)
+    return jsonify({'message': 'Refresh token successfully revoked'}), 200
+
+# Route: Delete User
+@app.route('/delete-account', methods=['DELETE'])
+@jwt_required()
+def delete_account():
+    user_id = get_jwt_identity()
+    delete_user_by_id(user_id)
+    return jsonify({'message': 'Account deleted successfully'}), 200
+
+# Route: Get User Information
+@app.route('/get-user', methods=['GET'])
+@jwt_required()
+def get_user():
+    user_id = get_jwt_identity()
+    user = fetch_user_by_id(user_id)
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+
+    return jsonify({'user_id': user['user_id'], 'email': user['email']}), 200
+
+# Route: Get All Users
+@app.route('/get-all-users', methods=['GET'])
+@jwt_required()
+def get_all_users():
+    user_id = get_jwt_identity()
+    if user_id != 1:
+        return jsonify({'message': 'You are not authorized to access this endpoint'}), 403
+
+    users = fetch_all_users()
+    return jsonify(users), 200
+
 
 
 # tested
