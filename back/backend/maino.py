@@ -1,6 +1,8 @@
 import json
-from flask import Flask, request, jsonify, make_response
+import threading
+from flask import Flask, request, jsonify, make_response, render_template,Response
 from werkzeug.security import generate_password_hash, check_password_hash
+import camera_dao
 import uom_dao
 import product_dao
 from sql_connection import get_sql_connection
@@ -9,8 +11,8 @@ import os
 from flask import Blueprint, request, Response, jsonify
 from user_dao import validate_user_input, generate_salt, generate_hash, db_write, validate_user
 from sql_connection import get_sql_connection
+from camera_dao import generate_frames, detection_counts
 
-from flask import Flask
 from flask_cors import CORS
 from flask_mysqldb import MySQL
 from settings import MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB
@@ -72,8 +74,23 @@ def login_user():
         return Response(status=500)
 
 
+# tested
+# ditection camera 
+@app.route('/video', methods=['GET']) 
+def video(): 
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame') 
 
 
+# tested
+# not nesesery!!!!!!!!!!!!
+# return detectiion lable 
+@app.route('/detections', methods=['GET']) 
+def detections(): 
+    if detection_counts: 
+        most_detected_label = max(detection_counts, key=detection_counts.get) 
+        return jsonify({'most_detected': most_detected_label}) 
+    else: 
+        return jsonify({'most_detected':'No detections made'})
 
 
 # tested
@@ -216,5 +233,5 @@ def get_all_orders():
 
 
 if __name__ == "__main__":
-
-    app.run(port=5000,debug=True)
+    threading.Thread(target=generate_frames).start()
+    app.run(port=5000,debug=True, threaded=True)
