@@ -2,6 +2,7 @@ import json
 import threading
 from flask import Flask, request, jsonify, make_response, render_template, Response
 import camera_dao
+import category_dao
 import uom_dao
 import product_dao
 from sql_connection import get_sql_connection
@@ -231,6 +232,17 @@ def get_uom():
     response = uom_dao.get_uoms(connection)
     response = jsonify(response)
     return response
+
+
+# tested
+# return all category
+@app.route('/getcategory', methods=['GET'])
+@jwt_required()
+def get_uom():
+    response = category_dao.get_category(connection)
+    response = jsonify(response)
+    return response
+
 
 # tested
 # Inserting  new product to db
