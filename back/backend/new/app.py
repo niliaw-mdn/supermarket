@@ -1,0 +1,100 @@
+import cv2
+import streamlit as st
+from ultralytics import YOLO
+
+# بارگذاری مدل YOLO
+yolo = YOLO('best.pt')
+
+# استفاده از session_state برای ذخیره detected_objects
+if "detected_objects" not in st.session_state:
+    st.session_state.detected_objects = {}
+
+def video_processing():
+    # تغییرات detected_objects را در session_state ذخیره می‌کنیم
+    detected_objects = st.session_state.detected_objects
+
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        st.error("وب‌کم در دسترس نیست!")
+        return
+
+    stframe = st.empty()
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            st.warning("عدم دریافت فریم از وب‌کم!")
+            break
+
+        # شناسایی اشیاء با استفاده از متد predict
+        results = yolo(frame)
+
+        # نتایج YOLO شامل boxes و names است
+        for result in results:
+            # استخراج جعبه‌های شناسایی‌شده و اسامی
+            boxes = result.boxes
+            names = result.names
+
+            # پردازش جعبه‌ها و برچسب‌ها
+            for i, box in enumerate(boxes):
+                # استخراج مختصات جعبه‌ها
+                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+
+                # رسم Bounding Box
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+
+                # نام شیء را در کنار جعبه بنویسید
+                label = names[int(box.cls)]
+                cv2.putText(frame, label, (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+                # افزایش تعداد اشیاء شناسایی‌شده
+                if label in detected_objects:
+                    detected_objects[label] += 1
+                else:
+                    detected_objects[label] = 1
+
+        # نمایش فریم
+        stframe.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB")
+
+        # بررسی وضعیت دکمه پایان عملیات
+        if st.session_state.stop_processing:
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+# رابط کاربری با Streamlit
+def streamlit_app():
+    st.title("شناسایی اشیاء با YOLOv11")
+    st.write("این اپلیکیشن از YOLOv11 برای شناسایی اشیاء از دوربین وب استفاده می‌کند.")
+    st.write("برای توقف نمایش ویدیو، بر روی دکمه 'پایان عملیات' کلیک کنید.")
+
+    # اگر stop_processing در session_state وجود ندارد، آن را تنظیم می‌کنیم
+    if "stop_processing" not in st.session_state:
+        st.session_state.stop_processing = False
+
+    # دکمه‌ها برای شروع و پایان شناسایی
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if not st.session_state.stop_processing:
+            if st.button("شروع شناسایی", key="start_button"):
+                st.session_state.stop_processing = False
+                video_processing()
+
+    with col2:
+        if st.session_state.stop_processing:
+            st.write("پردازش متوقف شد.")
+        else:
+            if st.button("پایان عملیات", key="end_button"):
+                st.session_state.stop_processing = True
+                st.write("اشیاء شناسایی‌شده و تعداد آن‌ها:", st.session_state.detected_objects)
+
+    # نمایش لیست اشیاء شناسایی‌شده به‌روزرسانی‌شده به‌صورت ریل تایم
+    if not st.session_state.stop_processing:
+        st.write("اشیاء شناسایی‌شده ریل تایم:")
+        st.write(st.session_state.detected_objects)
+
+# اجرای اپلیکیشن
+if __name__ == "__main__":
+    streamlit_app()
