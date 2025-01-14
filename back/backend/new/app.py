@@ -1,17 +1,25 @@
 import cv2
 import streamlit as st
 from ultralytics import YOLO
+from collections import defaultdict
 
 # بارگذاری مدل YOLO
 yolo = YOLO('best.pt')
 
-# استفاده از session_state برای ذخیره detected_objects
+# استفاده از session_state برای ذخیره detected_objects و active_objects
 if "detected_objects" not in st.session_state:
     st.session_state.detected_objects = {}
+
+if "active_objects" not in st.session_state:
+    st.session_state.active_objects = defaultdict(int)  # شامل شیء و تایمر مرتبط با آن
+
+# تنظیمات مربوط به زمان ماندگاری اشیاء
+FRAME_LIFETIME = 10  # تعداد فریم‌هایی که یک شیء می‌تواند غیرفعال بماند
 
 def video_processing():
     # تغییرات detected_objects را در session_state ذخیره می‌کنیم
     detected_objects = st.session_state.detected_objects
+    active_objects = st.session_state.active_objects
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -29,6 +37,9 @@ def video_processing():
         # شناسایی اشیاء با استفاده از متد predict
         results = yolo(frame)
 
+        # لیستی برای اشیاء موجود در این فریم
+        current_objects = set()
+
         # نتایج YOLO شامل boxes و names است
         for result in results:
             # استخراج جعبه‌های شناسایی‌شده و اسامی
@@ -45,13 +56,30 @@ def video_processing():
 
                 # نام شیء را در کنار جعبه بنویسید
                 label = names[int(box.cls)]
+                current_objects.add(label)
+
                 cv2.putText(frame, label, (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-                # افزایش تعداد اشیاء شناسایی‌شده
-                if label in detected_objects:
-                    detected_objects[label] += 1
+        # مدیریت اشیاء فعال با تایمر
+        for obj in current_objects:
+            if obj not in active_objects:  # شیء جدید است
+                if obj in detected_objects:
+                    detected_objects[obj] += 1
                 else:
-                    detected_objects[label] = 1
+                    detected_objects[obj] = 1
+            active_objects[obj] = FRAME_LIFETIME  # ریست کردن تایمر
+
+        # کاهش تایمر اشیاء فعال
+        to_remove = []
+        for obj in active_objects:
+            if obj not in current_objects:
+                active_objects[obj] -= 1
+                if active_objects[obj] <= 0:  # اگر تایمر به پایان برسد
+                    to_remove.append(obj)
+
+        # حذف اشیاء غیرفعال از لیست
+        for obj in to_remove:
+            del active_objects[obj]
 
         # نمایش فریم
         stframe.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB")
