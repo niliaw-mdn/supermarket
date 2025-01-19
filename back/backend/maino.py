@@ -175,14 +175,343 @@ def get_all_users():
     return jsonify(users), 200
 
 
+#----------------------------------------------------------------------------------------------------
+
+# های آماریAPI
+# 1. تعداد کل محصولات
+@app.route('/total_products', methods=['GET'])
+def total_products():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 2. میانگین قیمت هر واحد
+@app.route('/average_price', methods=['GET'])
+def average_price():
+    cursor = connection.cursor()
+    cursor.execute("SELECT AVG(price_per_unit) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 3. بیشترین تخفیف داده شده
+@app.route('/max_discount', methods=['GET'])
+def max_discount():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MAX(discount_percentage) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 4. کمترین وزن
+@app.route('/min_weight', methods=['GET'])
+def min_weight():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MIN(weight) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 5. مجموع سود
+@app.route('/total_profit', methods=['GET'])
+def total_profit():
+    cursor = connection.cursor()
+    cursor.execute("SELECT SUM(total_profit_on_sales) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 6. تعداد محصولات منقضی شده
+@app.route('/expired_products', methods=['GET'])
+def expired_products():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE expiration_date < CURDATE()")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 7. تعداد محصولات در حال انقضاء (در یک ماه آینده)
+@app.route('/expiring_products', methods=['GET'])
+def expiring_products():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 8. تعداد محصولات بدون تخفیف
+@app.route('/no_discount_products', methods=['GET'])
+def no_discount_products():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE discount_percentage = 0")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 9. مجموع وزن محصولات
+@app.route('/total_weight', methods=['GET'])
+def total_weight():
+    cursor = connection.cursor()
+    cursor.execute("SELECT SUM(weight) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 10. بیشترین قیمت هر واحد
+@app.route('/max_price', methods=['GET'])
+def max_price():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MAX(price_per_unit) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 11. کمترین قیمت هر واحد
+@app.route('/min_price', methods=['GET'])
+def min_price():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MIN(price_per_unit) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 12. تعداد محصولات با قیمت بیش از 10000 تومان
+@app.route('/price_above_10000', methods=['GET'])
+def price_above_10000():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE price_per_unit > 10000")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 13. تعداد محصولات با وزن کمتر از 500 گرم
+@app.route('/weight_below_500', methods=['GET'])
+def weight_below_500():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE weight < 500")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 14. میانگین درصد تخفیف
+@app.route('/average_discount', methods=['GET'])
+def average_discount():
+    cursor = connection.cursor()
+    cursor.execute("SELECT AVG(discount_percentage) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 15. تعداد محصولات با سود بیش از 1000 تومان
+@app.route('/profit_above_1000', methods=['GET'])
+def profit_above_1000():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE total_profit_on_sales > 1000")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 16. تعداد محصولات با تخفیف کمتر از 10 درصد
+@app.route('/discount_below_10', methods=['GET'])
+def discount_below_10():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE discount_percentage < 10")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 17. میانگین وزن محصولات
+@app.route('/average_weight', methods=['GET'])
+def average_weight():
+    cursor = connection.cursor()
+    cursor.execute("SELECT AVG(weight) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 18. بیشترین سود هر محصول
+@app.route('/max_profit', methods=['GET'])
+def max_profit():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MAX(total_profit_on_sales) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 19. کمترین سود هر محصول
+@app.route('/min_profit', methods=['GET'])
+def min_profit():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MIN(total_profit_on_sales) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 20. تعداد محصولات با سود منفی (ضرر)
+@app.route('/negative_profit_products', methods=['GET'])
+def negative_profit_products():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE total_profit_on_sales < 0")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 21. مجموع تخفیف‌ها
+@app.route('/total_discounts', methods=['GET'])
+def total_discounts():
+    cursor = connection.cursor()
+    cursor.execute("SELECT SUM(discount_percentage) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 22. تعداد محصولات با قیمت بین 5000 تا 10000 تومان
+@app.route('/price_between_5000_10000', methods=['GET'])
+def price_between_5000_10000():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE price_per_unit BETWEEN 5000 AND 10000")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 23. میانگین سود هر محصول
+@app.route('/average_profit', methods=['GET'])
+def average_profit():
+    cursor = connection.cursor()
+    cursor.execute("SELECT AVG(total_profit_on_sales) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 24. تعداد محصولات با وزن بین 500 تا 1000 گرم
+@app.route('/weight_between_500_1000', methods=['GET'])
+def weight_between_500_1000():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE weight BETWEEN 500 AND 1000")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 25. بیشترین سود در فروش
+@app.route('/max_sales_profit', methods=['GET'])
+def max_sales_profit():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MAX(total_profit_on_sales) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 26. کمترین سود در فروش
+@app.route('/min_sales_profit', methods=['GET'])
+def min_sales_profit():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MIN(total_profit_on_sales) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 27. میانگین قیمت محصولات بدون تخفیف
+@app.route('/average_price_no_discount', methods=['GET'])
+def average_price_no_discount():
+    cursor = connection.cursor()
+    cursor.execute("SELECT AVG(price_per_unit) FROM products WHERE discount_percentage = 0")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 28. تعداد محصولات با سود بالای 500 تومان
+@app.route('/profit_above_500', methods=['GET'])
+def profit_above_500():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE total_profit_on_sales > 500")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 29. میانگین سود هر واحد
+@app.route('/average_profit_per_unit', methods=['GET'])
+def average_profit_per_unit():
+    cursor = connection.cursor()
+    cursor.execute("SELECT AVG(total_profit_on_sales / weight) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 30. مجموع تعداد واحدهای فروخته شده
+@app.route('/total_units_sold', methods=['GET'])
+def total_units_sold():
+    cursor = connection.cursor()
+    cursor.execute("SELECT SUM(units_sold) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 31. بیشترین تعداد واحدهای فروخته شده از یک محصول
+@app.route('/max_units_sold', methods=['GET'])
+def max_units_sold():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MAX(units_sold) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 32. کمترین تعداد واحدهای فروخته شده از یک محصول
+@app.route('/min_units_sold', methods=['GET'])
+def min_units_sold():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MIN(units_sold) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 33. میانگین تعداد واحدهای فروخته شده از یک محصول
+@app.route('/average_units_sold', methods=['GET'])
+def average_units_sold():
+    cursor = connection.cursor()
+    cursor.execute("SELECT AVG(units_sold) FROM products")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 34. تعداد محصولات با قیمت بیش از میانگین قیمت
+@app.route('/price_above_average', methods=['GET'])
+def price_above_average():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE price_per_unit > (SELECT AVG(price_per_unit) FROM products)")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 35. تعداد محصولات با تخفیف بیش از میانگین تخفیف
+@app.route('/discount_above_average', methods=['GET'])
+def discount_above_average():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE discount_percentage > (SELECT AVG(discount_percentage) FROM products)")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 36. بیشترین تعداد واحدهای فروخته شده در یک ماه
+@app.route('/max_units_sold_in_month', methods=['GET'])
+def max_units_sold_in_month():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MAX(units_sold) FROM products WHERE DATE_FORMAT(sold_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 37. کمترین تعداد واحدهای فروخته شده در یک ماه
+@app.route('/min_units_sold_in_month', methods=['GET'])
+def min_units_sold_in_month():
+    cursor = connection.cursor()
+    cursor.execute("SELECT MIN(units_sold) FROM products WHERE DATE_FORMAT(sold_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 38. مجموع تعداد واحدهای فروخته شده در یک ماه
+@app.route('/total_units_sold_in_month', methods=['GET'])
+def total_units_sold_in_month():
+    cursor = connection.cursor()
+    cursor.execute("SELECT SUM(units_sold) FROM products WHERE DATE_FORMAT(sold_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 39. میانگین تعداد واحدهای فروخته شده در یک ماه
+@app.route('/average_units_sold_in_month', methods=['GET'])
+def average_units_sold_in_month():
+    cursor = connection.cursor()
+    cursor.execute("SELECT AVG(units_sold) FROM products WHERE DATE_FORMAT(sold_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+# 40. تعداد محصولات با سود هر واحد بیش از میانگین سود هر واحد
+@app.route('/profit_per_unit_above_average', methods=['GET'])
+def profit_per_unit_above_average():
+    cursor = connection.cursor()
+    cursor.execute("SELECT COUNT(*) FROM products WHERE (total_profit_on_sales / weight) > (SELECT AVG(total_profit_on_sales / weight) FROM products)")
+    result = cursor.fetchone()
+    return jsonify(result)
+
+#----------------------------------------------------------------------------------------------------
+
+# 
+
+
+"""
 # tested
 # ditection camera 
 @app.route('/video', methods=['GET']) 
 def video(): 
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame') 
 
-
-# tested
+"""
+'''# tested
 # not nesesery!!!!!!!!!!!!
 # return detectiion lable 
 @app.route('/detections', methods=['GET']) 
@@ -191,7 +520,7 @@ def detections():
         most_detected_label = max(detection_counts, key=detection_counts.get) 
         return jsonify({'most_detected': most_detected_label}) 
     else: 
-        return jsonify({'most_detected':'No detections made'})
+        return jsonify({'most_detected':'No detections made'})'''
 
 
 # tested
