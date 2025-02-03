@@ -1,4 +1,4 @@
-from sql_connection import get_sql_connection
+from back.sql_connection import get_sql_connection
 
 
 def get_all_products(connection):
@@ -96,17 +96,6 @@ def insert_new_product(connection, product):
     connection.commit()
 
     return cursor.lastrowid
-
-
-
-def delete_product(connection, product_id):
-    # sourcery skip: use-fstring-for-concatenation
-    cursor = connection.cursor()
-
-    query = ("DELETE FROM product where product_id=" + str(product_id))
-
-    cursor.execute(query)
-    connection.commit()
 
 
 def update_product(connection, product_id, product_data):

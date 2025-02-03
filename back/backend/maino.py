@@ -2,14 +2,14 @@ import json
 import threading
 from flask import Flask, request, jsonify, make_response, render_template, Response
 import camera_dao
-import category_dao
-import uom_dao
-import product_dao
-from sql_connection import get_sql_connection
+import back.category_dao as category_dao
+import back.uom_dao as uom_dao
+import back.product_dao as product_dao
+from back.sql_connection import get_sql_connection
 import orders_dao
 import os
 from flask import Blueprint, request, Response, jsonify
-from sql_connection import get_sql_connection
+from back.sql_connection import get_sql_connection
 from camera_dao import generate_frames, detection_counts
 
 from flask_jwt_extended import (
@@ -504,14 +504,14 @@ def profit_per_unit_above_average():
 
 
 """
-# tested
+
 # ditection camera 
 @app.route('/video', methods=['GET']) 
 def video(): 
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame') 
 
 """
-'''# tested
+'''
 # not nesesery!!!!!!!!!!!!
 # return detectiion lable 
 @app.route('/detections', methods=['GET']) 
@@ -523,7 +523,6 @@ def detections():
         return jsonify({'most_detected':'No detections made'})'''
 
 
-# tested
 # returning all products in db
 # Product APIs
 @app.route('/getProducts', methods=['GET'])
@@ -532,7 +531,6 @@ def get_products():
     products = product_dao.get_all_products(connection)
     return jsonify(products)
 
-# tested
 # returning all entiteis of a specific product
 # Product APIs
 @app.route('/getProduct/<int:product_id>', methods=['GET'])
@@ -545,35 +543,7 @@ def get_one_product(product_id):
 
 
 
-# tested
-# delete one specific product
-@app.route('/deleteProduct', methods=['POST'])
-@jwt_required()
-def delete_product():
-    return_id = product_dao.delete_product(connection, request.json.get('product_id'))
-    return jsonify({'product_id': return_id})
 
-# tested
-# return all unites of mesurment
-@app.route('/getUOM', methods=['GET'])
-@jwt_required()
-def get_uom():
-    response = uom_dao.get_uoms(connection)
-    response = jsonify(response)
-    return response
-
-
-# tested
-# return all category
-@app.route('/getcategory', methods=['GET'])
-@jwt_required()
-def get_uom():
-    response = category_dao.get_category(connection)
-    response = jsonify(response)
-    return response
-
-
-# tested
 # Inserting  new product to db
 @app.route('/insertProduct', methods=['POST'])
 @jwt_required()
@@ -661,7 +631,6 @@ def get_all_orders():
 
 
 if __name__ == "__main__":
-    threading.Thread(target=generate_frames).start()
     app.run(port=5000,debug=True, threaded=True)
 
 

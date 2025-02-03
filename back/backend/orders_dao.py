@@ -1,7 +1,7 @@
-import product_dao
-from sql_connection import get_sql_connection
+import back.product_dao as product_dao
+from back.sql_connection import get_sql_connection
 from datetime import datetime
-from product_dao import get_available_quantity
+from back.product_dao import get_available_quantity
 
 def insert_order(connection, order):  # sourcery skip: for-append-to-extend, list-comprehension
     cursor = connection.cursor()
