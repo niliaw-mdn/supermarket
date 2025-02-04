@@ -76,80 +76,10 @@ def get_product(connection, product_id):
 
 
 
-def insert_new_product(connection, product):
-    cursor = connection.cursor()
-
-    query = ("""insert into product (name, uom_id, price_per_unit, available_quantity,
-                manufacturer_name, weight, purchase_price, discount_percentage, voluminosity,
-                combinations, nutritional_information, expiration_date, storage_conditions,
-                number_sold, date_added_to_stock, total_profit_on_sales, error_rate_in_weight, image_address, category_id)
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""")
-
-    data = (product['name'], product['uom_id'], product['price_per_unit'], product['available_quantity'],
-            product['manufacturer_name'], product['weight'], product['purchase_price'],
-            product['discount_percentage'], product['voluminosity'], product['combinations'],
-            product['nutritional_information'], product['expiration_date'], product['storage_conditions'], product['number_sold'],
-            product['date_added_to_stock'], product['total_profit_on_sales'], product['error_rate_in_weight'], product['image_address'],
-            product['category_id'])
-
-    cursor.execute(query, data)
-    connection.commit()
-
-    return cursor.lastrowid
 
 
-def update_product(connection, product_id, product_data):
-    cursor = connection.cursor()
 
-    # Define the expected keys
-    expected_keys = [
-        'name', 'uom_id', 'price_per_unit', 'available_quantity',
-        'manufacturer_name', 'weight', 'purchase_price', 'discount_percentage',
-        'voluminosity', 'combinations', 'nutritional_information', 'expiration_date',
-        'storage_conditions', 'number_sold', 'date_added_to_stock', 'total_profit_on_sales',
-        'error_rate_in_weight', 'image_address', 'category_id'
-    ]
 
-    # Ensure all expected keys are present
-    for key in expected_keys:
-        if key not in product_data:
-            raise ValueError(f"Missing key: {key}")
-
-    sql = """ UPDATE product SET name = %s,
-                uom_id = %s,
-                price_per_unit = %s,
-                available_quantity = %s,
-                manufacturer_name = %s,
-                weight = %s,
-                purchase_price = %s,
-                discount_percentage = %s,
-                voluminosity = %s,
-                combinations = %s,
-                nutritional_information = %s,
-                expiration_date = %s,
-                storage_conditions = %s,
-                number_sold = %s,
-                date_added_to_stock = %s,
-                total_profit_on_sales = %s,
-                error_rate_in_weight = %s,
-                image_address = %s,
-                category_id = %s
-                WHERE product_id = %s
-                """
-                
-
-    values = (product_data['name'], product_data['uom_id'], product_data['price_per_unit'],
-                product_data['available_quantity'], product_data['manufacturer_name'],
-                product_data['weight'], product_data['purchase_price'], product_data['discount_percentage'],
-                product_data['voluminosity'], product_data['combinations'], product_data['nutritional_information'],
-                product_data['expiration_date'], product_data['storage_conditions'], product_data['number_sold'],
-                product_data['date_added_to_stock'], product_data['total_profit_on_sales'],
-                product_data['error_rate_in_weight'],product_data['image_address'], product_data['category_id'],
-                product_id)
-
-    cursor.execute(sql, values)
-    connection.commit()
-    cursor.close()
 
 
 #have to be complete for availablity

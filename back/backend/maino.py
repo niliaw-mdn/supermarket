@@ -544,71 +544,10 @@ def get_one_product(product_id):
 
 
 
-# Inserting  new product to db
-@app.route('/insertProduct', methods=['POST'])
-@jwt_required()
-def insert_product():
-    """productname = request.form.get('name')
-    productdescription = request.form.get('description')
-    productprice = request.form.get('price')
-    productquantity = request.form.get('quantity')"""
-    
-    file = request.files['file']
-    imageaddress = app.config['UPLOAD_FOLDER'] + file.name
-    
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'],file.filename)
-    
-    file.save(file_path)
-    product={}
-    product['name']=request.form.get('name')
-    product['uom_id']=request.form.get('uom_id')
-    product['price_per_unit']=request.form.get('price_per_unit')
-    product['available_quantity']=request.form.get('available_quantity')
-    product['manufacturer_name']=request.form.get('manufacturer_name')
-    product['weight']=request.form.get('weight')
-    product['purchase_price']=request.form.get('purchase_price')
-    product['discount_percentage']=request.form.get('discount_percentage')
-    product['voluminosity']=request.form.get('voluminosity')
-    product['combinations']=request.form.get('combinations')
-    product['nutritional_information']=request.form.get('nutritional_information')
-    product['expiration_date']=request.form.get('expiration_date')
-    product['storage_conditions']=request.form.get('storage_conditions')
-    product['number_sold']=request.form.get('number_sold')
-    product['date_added_to_stock']=request.form.get('date_added_to_stock')
-    product['total_profit_on_sales']=request.form.get('total_profit_on_sales')
-    product['error_rate_in_weight']=request.form.get('error_rate_in_weight')
-    product['image_address'] = file_path
-    product_dao.insert_new_product(connection, product=product)
-    return jsonify({'message': 'Product added successfully'})
-    # try:
-    #     print("Request received")
-    #     request_payload = request.get_json()
-    #     print(f"Request payload: {request_payload}")
-
-    #     # Check if request payload is received correctly
-    #     if not request_payload:
-    #         return jsonify({"error": "Invalid JSON payload"}), 400
-
-    #     # Assuming product_dao.insert_new_product function and connection are defined elsewhere
-    #     product_id = product_dao.insert_new_product(connection, request_payload)
-    #     return jsonify({'product_id': product_id})
-    # except Exception as e:
-    #     # Log the exception for debugging
-    #     print(f"Error occurred: {e}")
-    #     return jsonify({"error": str(e)}), 500
 
 
 
-#image update missing
-# updating a single product in db
-@app.route('/updateProduct/<int:product_id>', methods=['PUT'])
-@jwt_required()
-def update_product_route(product_id):
-    request_payload = request.json
-    if not request_payload:
-        return jsonify({"error": "Invalid JSON payload"}), 400
-    product_dao.update_product(connection, product_id, request_payload)
-    return jsonify({'message': 'Product updated successfully'})
+
 
 
 
