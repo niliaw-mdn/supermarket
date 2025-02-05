@@ -2,9 +2,6 @@ import json
 import threading
 from flask import Flask, request, jsonify, make_response, render_template, Response
 import camera_dao
-import back.category_dao as category_dao
-import back.uom_dao as uom_dao
-import back.product_dao as product_dao
 from back.sql_connection import get_sql_connection
 import orders_dao
 import os

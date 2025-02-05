@@ -1,7 +1,7 @@
 import os
 from flask import Flask, jsonify, request
 import mysql.connector
-
+import cv2
 from sql_connection import get_sql_connection
 
 
@@ -12,11 +12,53 @@ app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads/'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# Set the output directory for images
+NEW_PRODUCT_IMG = 'new_product_img/'
+app.config['NEW_PRODUCT_IMG'] = NEW_PRODUCT_IMG
+
 connection = get_sql_connection()
 
 # ---------------------------------------------------------------------------------------------
 # product data access 
 #----------------------------------------------------------------------------------------------
+
+
+
+@app.route('/capture', methods=['GET'])
+def capture_images():
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        return jsonify({"error": "Unable to access camera!"})
+
+    image_counter = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        cv2.imshow('Webcam', frame)
+        key = cv2.waitKey(1) & 0xFF
+
+        # Press 's' to save an image
+        if key == ord('s'):
+            img_name = os.path.join(NEW_PRODUCT_IMG, f"image_{image_counter}.png")
+            cv2.imwrite(img_name, frame)
+            print(f"Image saved: {img_name}")
+            image_counter += 1
+
+        # Press 'Esc' to exit
+        elif key == 27:
+            print("Exiting...")
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    
+    return jsonify({"message": "Capture session ended", "total_images": image_counter})
+
+
+
+
 
 
 #----------------------------------------------------------------------------------------------------
