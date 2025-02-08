@@ -3,17 +3,22 @@ from flask import Flask, jsonify, request
 import mysql.connector
 import cv2
 from sql_connection import get_sql_connection
+from flask_cors import CORS
+from flask import send_from_directory
+
 
 
 
 app = Flask(__name__)
+CORS(app)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
+NEW_PRODUCT_IMG = os.path.join(BASE_DIR, 'new_product_img')
 
-# Configuration for file uploads
-UPLOAD_FOLDER = 'uploads/'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(NEW_PRODUCT_IMG, exist_ok=True)
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Set the output directory for images
-NEW_PRODUCT_IMG = 'new_product_img/'
 app.config['NEW_PRODUCT_IMG'] = NEW_PRODUCT_IMG
 
 connection = get_sql_connection()
@@ -497,6 +502,9 @@ def get_products():
 
     return jsonify(products)
 
+@app.route('/productimages/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 
 # T
@@ -558,17 +566,30 @@ def get_one_product(product_id):
 @app.route('/updateProduct/<int:product_id>', methods=['PUT'])
 def update_product(product_id):
     try:
+        # First, retrieve the current image path from the database (in case we don't upload a new image)
+        cursor = connection.cursor()
+        cursor.execute("SELECT image_address FROM product WHERE product_id = %s", (product_id,))
+        current_image_path = cursor.fetchone()
+
+        if current_image_path:
+            current_image_path = current_image_path[0]
+        else:
+            return jsonify({'error': 'Product not found'}), 404
+
         # Check if a new image is uploaded
         if 'file' in request.files:
             file = request.files['file']
-            if file.filename != '':
+            if file.filename != '':  # Ensure the file is not empty
                 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
                 file.save(file_path)
+                # Use the new file path if a new image is uploaded
+            else:
+                file_path = current_image_path  # Use the existing image path if no file is uploaded
         else:
-            file_path = request.form.get('image_address')  # Use existing image path
+            file_path = current_image_path  # Use the existing image path if no file is uploaded
 
-        # Extract product details
+        # Extract product details from the form
         product_data = {
             'name': request.form.get('name'),
             'uom_id': request.form.get('uom_id'),
@@ -588,11 +609,10 @@ def update_product(product_id):
             'total_profit_on_sales': request.form.get('total_profit_on_sales'),
             'error_rate_in_weight': request.form.get('error_rate_in_weight'),
             'category_id': request.form.get('category_id'),
-            'image_address': file_path
+            'image_address': file_path  # Set the image address (either new or old path)
         }
 
-        cursor = connection.cursor()
-
+        # Prepare the SQL UPDATE query
         sql = """UPDATE product SET 
                     name = %s, uom_id = %s, price_per_unit = %s, available_quantity = %s,
                     manufacturer_name = %s, weight = %s, purchase_price = %s, discount_percentage = %s,
@@ -611,6 +631,7 @@ def update_product(product_id):
             product_data['category_id'], product_id
         )
 
+        # Execute the update query
         cursor.execute(sql, values)
         connection.commit()
 
@@ -628,17 +649,20 @@ def update_product(product_id):
             # connection.close()
 
 
-
 # T
 # inserting all attribute of a product 
 @app.route('/insertProduct', methods=['POST'])
 def insert_product():
     try:
+        # Get the uploaded file
         file = request.files['file']
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
         file.save(file_path)
 
-        # Extract product details from request
+        # Generate the relative path for the image
+        relative_file_path = os.path.relpath(file_path, app.config['UPLOAD_FOLDER'])
+
+        # Extract product details from the form
         product = {
             'name': request.form.get('name'),
             'uom_id': request.form.get('uom_id'),
@@ -658,7 +682,7 @@ def insert_product():
             'total_profit_on_sales': request.form.get('total_profit_on_sales'),
             'error_rate_in_weight': request.form.get('error_rate_in_weight'),
             'category_id': request.form.get('category_id'),
-            'image_address': file_path
+            'image_address': relative_file_path  # Store the relative path
         }
 
         cursor = connection.cursor()

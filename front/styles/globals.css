@@ -2,4 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-
+@font-face {
+    font-family: bakh;
+    src: url("../public/font/yekanbakh/YekanBakhFaNum-Regular.woff");
+  }
+  
+  * {
+    font-family: bakh;
+    scrollbar-width: thin;
+  }

@@ -8,7 +8,6 @@ const Chart = ({ title, categories, data, color }) => {
     chart: {
       height: "100%",
       type: "area",
-      fontFamily: "Inter, sans-serif",
       toolbar: {
         show: false,
       },
@@ -56,6 +55,7 @@ const Chart = ({ title, categories, data, color }) => {
         series={chartSeries}
         type="area"
         height="300"
+        width="600"
       />
     </div>
   );

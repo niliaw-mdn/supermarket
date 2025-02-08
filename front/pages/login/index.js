@@ -54,7 +54,7 @@ function Index() {
               />
               <label
                 htmlFor="floating-input"
-                className="absolute text-sm text-gray-500 bg-white px-1 duration-300 transform top-[-10px] left-2 peer-placeholder-shown:top-2.5 peer-placeholder-shown:text-gray-400 peer-placeholder-shown:bg-transparent peer-focus:top-[-10px] peer-focus:text-blue-600 peer-focus:bg-white"
+                className="absolute text-sm text-gray-500  px-1 duration-300 transform top-[-10px] left-2 peer-placeholder-shown:top-2.5 peer-placeholder-shown:text-gray-400 peer-placeholder-shown:bg-transparent peer-focus:top-[-10px] peer-focus:text-blue-600 peer-focus:bg-white"
               >
                 Email
               </label>
@@ -70,7 +70,7 @@ function Index() {
               />
               <label
                 htmlFor="floating-input"
-                className="absolute text-sm text-gray-500 bg-white px-1 duration-300 transform top-[-10px] left-2 peer-placeholder-shown:top-2.5 peer-placeholder-shown:text-gray-400 peer-placeholder-shown:bg-transparent peer-focus:top-[-10px] peer-focus:text-blue-600 peer-focus:bg-white"
+                className="absolute text-sm text-gray-500  px-1 duration-300 transform top-[-10px] left-2 peer-placeholder-shown:top-2.5 peer-placeholder-shown:text-gray-400 peer-placeholder-shown:bg-transparent peer-focus:top-[-10px] peer-focus:text-blue-600 peer-focus:bg-white"
               >
                 Password
               </label>

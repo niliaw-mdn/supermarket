@@ -1,0 +1,20 @@
+{
+    "id": 1,
+    "name": "نیلوفر معدنی",
+    "role": "مدیر فروشگاه",
+    "avatar": "/pic/avatar.png",
+    "startDate": "1402-01-10",
+    "contact": {
+      "phone": "09123456789",
+      "email": "niloo@example.com"
+    },
+    "skills": ["مدیریت", "برنامه‌ریزی", "ارتباطات"],
+    "performance": {
+      "workingHours": 180,
+      "overtime": 15,
+      "completedTasks": 60,
+      "qualityScore": 95,
+      "salary": 10000000
+    }
+  }
+  
