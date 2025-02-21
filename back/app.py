@@ -8,7 +8,6 @@ from flask import send_from_directory
 
 
 
-
 app = Flask(__name__)
 CORS(app)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -464,6 +463,64 @@ def get_available_quantity(product_id):
         return jsonify({'available_quantity': result[0]})
     else:
         return jsonify({'error': 'Product not found'}), 404
+
+
+
+
+
+
+# T
+# returning all products in page nation from db 
+@app.route('/getProductspn', methods=['GET'])
+def get_products():
+    cursor = connection.cursor()
+    
+    # Get page and limit from query parameters
+    page = request.args.get('page', default=1, type=int)
+    limit = request.args.get('limit', default=20, type=int)
+    offset = (page - 1) * limit
+    
+    query = """
+        SELECT product.product_id, product.name, product.uom_id, product.price_per_unit, 
+               product.available_quantity, product.image_address, product.category_id, 
+               uom.uom_name, category.category_name 
+        FROM grocery_store.product 
+        JOIN uom ON product.uom_id = uom.uom_id 
+        JOIN category ON product.category_id = category.category_id 
+        LIMIT %s OFFSET %s
+    """
+    
+    cursor.execute(query, (limit, offset))
+    
+    products = []
+    for row in cursor.fetchall():
+        product = {
+            'product_id': row[0],
+            'name': row[1],
+            'uom_id': row[2],
+            'price_per_unit': row[3],
+            'available_quantity': row[4],
+            'image_address': row[5],
+            'category_id': row[6],
+            'uom_name': row[7],
+            'category_name': row[8]
+        }
+        products.append(product)
+    
+    # Get total product count for pagination metadata
+    count_query = "SELECT COUNT(*) FROM grocery_store.product"
+    cursor.execute(count_query)
+    total_products = cursor.fetchone()[0]
+    
+    cursor.close()
+    
+    return jsonify({
+        'page': page,
+        'limit': limit,
+        'total_products': total_products,
+        'total_pages': (total_products + limit - 1) // limit,
+        'products': products
+    })
 
 
 
