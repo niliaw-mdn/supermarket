@@ -472,7 +472,7 @@ def get_available_quantity(product_id):
 # T
 # returning all products in page nation from db 
 @app.route('/getProductspn', methods=['GET'])
-def get_products():
+def get_productspn():
     cursor = connection.cursor()
     
     # Get page and limit from query parameters
