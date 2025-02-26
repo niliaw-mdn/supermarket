@@ -487,8 +487,9 @@ def get_productspn():
     params = []
 
     if search:
-        filters.append("product.name LIKE %s")
-        params.append(f"%{search}%")
+        filters.append("(product.name LIKE %s OR category.category_name LIKE %s OR uom.uom_name LIKE %s)")
+        search_term = f"%{search}%"
+        params.extend([search_term, search_term, search_term])
     
     if category_id:
         filters.append("product.category_id = %s")
@@ -510,13 +511,12 @@ def get_productspn():
         {filter_query}
         LIMIT %s OFFSET %s
     """
-    
     params.extend([limit, offset])
     cursor.execute(query, tuple(params))
 
     products = []
     for row in cursor.fetchall():
-        product = {
+        products.append({
             'product_id': row[0],
             'name': row[1],
             'uom_id': row[2],
@@ -526,11 +526,16 @@ def get_productspn():
             'category_id': row[6],
             'uom_name': row[7],
             'category_name': row[8]
-        }
-        products.append(product)
+        })
 
-    count_query = f"SELECT COUNT(*) FROM grocery_store.product JOIN uom ON product.uom_id = uom.uom_id JOIN category ON product.category_id = category.category_id {filter_query}"
-    cursor.execute(count_query, tuple(params[:-2])) 
+    count_query = f"""
+        SELECT COUNT(*) 
+        FROM grocery_store.product 
+        JOIN uom ON product.uom_id = uom.uom_id 
+        JOIN category ON product.category_id = category.category_id
+        {filter_query}
+    """
+    cursor.execute(count_query, tuple(params[:-2]))  # Exclude limit and offset
     total_products = cursor.fetchone()[0]
 
     cursor.close()
@@ -542,6 +547,7 @@ def get_productspn():
         'total_pages': (total_products + limit - 1) // limit,
         'products': products
     })
+
 
 
 
@@ -884,17 +890,23 @@ def get_uom():
 # return all category
 @app.route('/getcategory', methods=['GET'])
 def get_category():
-    cursor = connection.cursor()
-    query = ("SELECT * from category")
-    cursor.execute(query)
+    try:
+        # بررسی و اطمینان از زنده بودن اتصال
+        if not connection.is_connected():
+            connection.reconnect(attempts=3, delay=2)
+
+        with connection.cursor() as cursor:
+            query = "SELECT * FROM category"
+            cursor.execute(query)
+            categories = cursor.fetchall()
+
+        response = [{'category_id': row[0], 'category_name': row[1]} for row in categories]
+
+        return jsonify(response)
     
-    response = []
-    for (category_id, category_name) in cursor:
-        response.append({
-            'category_id': category_id,
-            'category_name': category_name
-        })
-    return jsonify(response)
+    except mysql.connector.Error as err:
+        return jsonify({'error': str(err)}), 500
+
 
 
 
