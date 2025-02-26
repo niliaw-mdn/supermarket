@@ -23,6 +23,10 @@ function Allproduct({ searchQuery = "" }) {
   const [productDetails, setProductDetails] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [page, setPage] = useState(1);
+  const [limit] = useState(15); 
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
 
   const backHandler = () => router.back();
@@ -35,22 +39,44 @@ function Allproduct({ searchQuery = "" }) {
           "http://localhost:5000/getcategory"
         );
         setCategories(categoryResponse.data);
-      } catch (error) {
-        console.error("Error fetching categories: ", error);
-      }
 
-      try {
-        const productResponse = await axios.get(
-          "http://localhost:5000/getProducts"
+        const { data } = await axios.get(
+          `http://localhost:5000/getProductspn`,
+          {
+            params: {
+              page,
+              limit, 
+              category: selectedCategory || undefined,
+              brands: selectedBrands.length
+                ? selectedBrands.join(",")
+                : undefined,
+              minPrice: minValue,
+              maxPrice: maxValue,
+            },
+          }
         );
-        setFetchdata(productResponse.data);
+
+        setProducts(data.products);
+        setTotalPages(data.total_pages); 
       } catch (error) {
-        console.error("Error fetching products: ", error);
+        console.error("Error fetching products:", error);
       }
     };
 
     fetchData();
-  }, []);
+  }, [page, selectedCategory, selectedBrands, minValue, maxValue]);
+
+  const handleNextPage = () => {
+    if (page < totalPages) {
+      setPage(page + 1);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (page > 1) {
+      setPage(page - 1);
+    }
+  };
 
   const handleCategoryChange = (categoryName) => {
     setSelectedCategory(categoryName);
@@ -62,7 +88,7 @@ function Allproduct({ searchQuery = "" }) {
     );
   };
 
-  const filteredData = fetchdata.filter((item) => {
+  const filteredData = products.filter((item) => {
     const matchesSearch = item.name
       ? item.name.toLowerCase().includes(searchQuery.toLowerCase())
       : false;
@@ -97,12 +123,11 @@ function Allproduct({ searchQuery = "" }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-
   const deleteProduct = async (productId) => {
     setLoading(true);
 
     try {
-      const response = await axios.post('http://localhost:5000/deleteProduct', {
+      const response = await axios.post("http://localhost:5000/deleteProduct", {
         product_id: productId,
       });
 
@@ -144,18 +169,9 @@ function Allproduct({ searchQuery = "" }) {
     setSelectedProductId(null);
   };
 
-  const categoryMapping = {
-    Snacks: "تنقلات",
-    Dairy: "لبنیات",
-    "Canned and Ready Meals": "کنسرو و غذای آماده",
-    "Fruits and Vegetables": "میوه و سبزیجات",
-    "Protein Ingredients": "مواد پروتئینی",
-    Beverages: "نوشیدنی ها",
-  };
-
   return (
     <>
-    <Toaster/>
+      <Toaster />
       <div className=" mb-[550px]  mx-5 ">
         <h2 className="p-7 font-bold">محصولات موجود</h2>
         <div className="relative w-full">
@@ -205,8 +221,7 @@ function Allproduct({ searchQuery = "" }) {
                               handleCategoryChange(category.category_name)
                             }
                           >
-                            {categoryMapping[category.category_name] ||
-                              category.category_name}
+                            {category.category_name}
                           </a>
                         </li>
                       ))}
@@ -350,15 +365,17 @@ function Allproduct({ searchQuery = "" }) {
                       {post.name}
                     </td>
 
-                    <td className="border border-gray-300 px-4 py-2">
-                      <img
-                        src={`http://localhost:5000/productimages/${post.image_address.replace(
-                          "uploads/",
-                          ""
-                        )}`}
-                        alt={`Product ${post.product_id}`}
-                        className="h-16 w-16 object-cover"
-                      />
+                    <td className="border  border-gray-300 ">
+                      <div className="flex justify-center">
+                        <img
+                          src={`http://localhost:5000/productimages/${post.image_address.replace(
+                            "uploads/",
+                            ""
+                          )}`}
+                          alt={`Product ${post.product_id}`}
+                          className="h-16 w-16 object-cover"
+                        />
+                      </div>
                     </td>
                     <td className="border border-gray-300 px-4 py-2">
                       {post.price_per_unit}تومان
@@ -410,6 +427,90 @@ function Allproduct({ searchQuery = "" }) {
                 ))}
               </tbody>
             </table>
+            <nav
+              aria-label="Page navigation example"
+              className="py-8 flex justify-center"
+            >
+              <ul className="flex items-center -space-x-px h-8 text-sm">
+               
+                <li>
+                  <button
+                    onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+                    className={`flex items-center justify-center px-3 h-14 w-14 leading-tight text-gray-500 bg-white border border-gray-300 rounded-s-lg hover:bg-gray-100 hover:text-gray-700 ${
+                      page === 1
+                        ? "opacity-50 cursor-not-allowed pointer-events-none"
+                        : ""
+                    }`}
+                    disabled={page === 1}
+                  >
+                    <span className="sr-only">Previous</span>
+                    <svg
+                      className="w-3 h-3 rtl:rotate-180"
+                      aria-hidden="true"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 6 10"
+                    >
+                      <path
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M5 1 1 5l4 4"
+                      />
+                    </svg>
+                  </button>
+                </li>
+
+               
+                {Array.from({ length: totalPages }).map((_, index) => (
+                  <li key={index}>
+                    <button
+                      onClick={() => setPage(index + 1)}
+                      className={`flex items-center justify-center px-3 h-14 w-14 leading-tight ${
+                        page === index + 1
+                          ? "text-blue-600 bg-blue-50 border border-blue-300"
+                          : "text-gray-500 bg-white border border-gray-300 hover:bg-gray-100 hover:text-gray-700"
+                      }`}
+                    >
+                      {index + 1}
+                    </button>
+                  </li>
+                ))}
+
+               
+                <li>
+                  <button
+                    onClick={() =>
+                      setPage((prev) => Math.min(prev + 1, totalPages))
+                    }
+                    className={`flex items-center justify-center px-3 h-14 w-14 leading-tight text-gray-500 bg-white border border-gray-300 rounded-e-lg hover:bg-gray-100 hover:text-gray-700 ${
+                      page === totalPages
+                        ? "opacity-50 cursor-not-allowed pointer-events-none"
+                        : ""
+                    }`}
+                    disabled={page === totalPages}
+                  >
+                    <span className="sr-only">Next</span>
+                    <svg
+                      className="w-3 h-3 rtl:rotate-180"
+                      aria-hidden="true"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 6 10"
+                    >
+                      <path
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="m1 9 4-4-4-4"
+                      />
+                    </svg>
+                  </button>
+                </li>
+              </ul>
+            </nav>
           </div>
         </div>
       </div>
