@@ -11,8 +11,8 @@ function Allproduct({ searchQuery = "" }) {
   const router = useRouter();
   const [fetchdata, setFetchdata] = useState([]);
   const [openSection, setOpenSection] = useState(null);
-  const [minValue, setMinValue] = useState(1000);
-  const [maxValue, setMaxValue] = useState(9000000000);
+  const [minPrice, setMinPrice] = useState(0);
+  const [maxPrice, setMaxPrice] = useState(0);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   const [isPriceOpen, setIsPriceOpen] = useState(false);
   const [isBrandOpen, setIsBrandOpen] = useState(false);
@@ -28,6 +28,33 @@ function Allproduct({ searchQuery = "" }) {
   const [limit] = useState(15); 
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStatistics = async () => {
+      try {
+        const [
+          minPriceResponse,
+          maxPriceResponse,
+        ] = await Promise.all([
+          axios.get("http://localhost:5000/min_price"),  
+          axios.get("http://localhost:5000/max_price"),  
+        ]);
+  
+        if (minPriceResponse.data && maxPriceResponse.data) {
+          setMinPrice(minPriceResponse.data[0] || 0);
+          setMaxPrice(maxPriceResponse.data[0] || 0);
+        } else {
+          console.error("Invalid response data", minPriceResponse, maxPriceResponse);
+        }
+      } catch (error) {
+        console.error("Error fetching statistics:", error);
+      }
+    };
+  
+    fetchStatistics();
+  }, []);
+  
+
 
   const backHandler = () => router.back();
   const addItemHandler = () => router.push("./addItems");
@@ -50,8 +77,8 @@ function Allproduct({ searchQuery = "" }) {
               brands: selectedBrands.length
                 ? selectedBrands.join(",")
                 : undefined,
-              minPrice: minValue,
-              maxPrice: maxValue,
+              minPrice: minPrice,
+              maxPrice: maxPrice,
             },
           }
         );
@@ -64,7 +91,7 @@ function Allproduct({ searchQuery = "" }) {
     };
 
     fetchData();
-  }, [page, selectedCategory, selectedBrands, minValue, maxValue]);
+  }, [page, selectedCategory, selectedBrands, minPrice, maxPrice]);
 
   const handleNextPage = () => {
     if (page < totalPages) {
