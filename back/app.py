@@ -67,7 +67,7 @@ def capture_images():
 
 #----------------------------------------------------------------------------------------------------
 # های آماری برای محصولاتAPI 
-# T
+# T $
 # 1. تعداد کل محصولات
 @app.route('/total_products', methods=['GET'])
 def total_products():
@@ -121,6 +121,62 @@ def expired_products():
     result = cursor.fetchone()
     return jsonify(result)
 
+# 6.2 لیست محصولات منقضی شده با پیجینیشن
+@app.route('/expired_productspn', methods=['GET'])
+def expired_productspn():
+    try:
+        # بررسی اتصال به دیتابیس
+        if not connection.is_connected():
+            connection.reconnect(attempts=3, delay=2)
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+
+    cursor = connection.cursor()
+
+    # دریافت پارامترهای صفحه‌بندی
+    page = request.args.get('page', default=1, type=int)
+    limit = request.args.get('limit', default=20, type=int)
+    
+    # شمارش تعداد کل محصولات منقضی شده
+    count_query = "SELECT COUNT(*) FROM product WHERE expiration_date < CURDATE()"
+    cursor.execute(count_query)
+    total_products = cursor.fetchone()[0]
+    total_pages = (total_products + limit - 1) // limit
+
+    # دریافت لیست محصولات منقضی شده با استفاده از LIMIT و OFFSET
+    select_query = """
+        SELECT product_id, name, price_per_unit, available_quantity, image_address, expiration_date, category_id
+        FROM product
+        WHERE expiration_date < CURDATE()
+        ORDER BY expiration_date ASC
+        LIMIT %s OFFSET %s
+    """
+    offset = (page - 1) * limit
+    cursor.execute(select_query, (limit, offset))
+
+    products = []
+    for row in cursor.fetchall():
+        products.append({
+            "product_id": row[0],
+            "name": row[1],
+            "price_per_unit": row[2],
+            "available_quantity": row[3],
+            "image_address": row[4],
+            "expiration_date": row[5].isoformat() if row[5] else None,
+            "category_id": row[6]
+        })
+
+    cursor.close()
+
+    return jsonify({
+        "page": page,
+        "limit": limit,
+        "total_products": total_products,
+        "total_pages": total_pages,
+        "products": products
+    })
+
+
 # T
 # 7. تعداد محصولات در حال انقضاء (در یک ماه آینده)
 @app.route('/expiring_products', methods=['GET'])
@@ -129,6 +185,70 @@ def expiring_products():
     cursor.execute("SELECT COUNT(*) FROM product WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)")
     result = cursor.fetchone()
     return jsonify(result)
+
+
+
+# 7.2 لیست محصولات در حال انقضاء (در یک ماه آینده) با پیجینیشن
+@app.route('/expiring_productspn', methods=['GET'])
+def expiring_productspn():
+    try:
+        # بررسی اتصال به دیتابیس
+        if not connection.is_connected():
+            connection.reconnect(attempts=3, delay=2)
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
+
+    cursor = connection.cursor()
+
+    # دریافت پارامترهای صفحه‌بندی
+    page = request.args.get('page', default=1, type=int)
+    limit = request.args.get('limit', default=20, type=int)
+    
+    # شمارش تعداد کل محصولات در حال انقضاء
+    count_query = """
+        SELECT COUNT(*) 
+        FROM product 
+        WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
+    """
+    cursor.execute(count_query)
+    total_products = cursor.fetchone()[0]
+    total_pages = (total_products + limit - 1) // limit
+
+    # دریافت لیست محصولات در حال انقضاء با استفاده از LIMIT و OFFSET
+    select_query = """
+        SELECT product_id, name, price_per_unit, available_quantity, image_address, expiration_date, category_id
+        FROM product
+        WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
+        ORDER BY expiration_date ASC
+        LIMIT %s OFFSET %s
+    """
+    offset = (page - 1) * limit
+    cursor.execute(select_query, (limit, offset))
+
+    products = []
+    for row in cursor.fetchall():
+        products.append({
+            "product_id": row[0],
+            "name": row[1],
+            "price_per_unit": row[2],
+            "available_quantity": row[3],
+            "image_address": row[4],
+            "expiration_date": row[5].isoformat() if row[5] else None,
+            "category_id": row[6]
+        })
+
+    cursor.close()
+
+    return jsonify({
+        "page": page,
+        "limit": limit,
+        "total_products": total_products,
+        "total_pages": total_pages,
+        "products": products
+    })
+
+
+
 
 # T
 # 8. تعداد محصولات بدون تخفیف
@@ -211,11 +331,11 @@ def average_discount():
     return jsonify(result)
 
 # T
-# 15. تعداد محصولات با سود بیش از 1000 تومان
+# 15. تعداد محصولات با سود بیش از 100000 تومان
 @app.route('/profit_above_1000', methods=['GET'])
 def profit_above_1000():
     cursor = connection.cursor()
-    cursor.execute("SELECT COUNT(*) FROM product WHERE total_profit_on_sales > 1000")
+    cursor.execute("SELECT COUNT(*) FROM product WHERE total_profit_on_sales > 100000")
     result = cursor.fetchone()
     return jsonify(result)
 
@@ -341,7 +461,7 @@ def profit_above_500():
 @app.route('/average_profit_per_unit', methods=['GET'])
 def average_profit_per_unit():
     cursor = connection.cursor()
-    cursor.execute("SELECT AVG(total_profit_on_sales / weight) FROM product")
+    cursor.execute("SELECT AVG(total_profit_on_sales / number_sold) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
 
@@ -437,7 +557,7 @@ def average_units_sold_in_month():
 @app.route('/profit_per_unit_above_average', methods=['GET'])
 def profit_per_unit_above_average():
     cursor = connection.cursor()
-    cursor.execute("SELECT COUNT(*) FROM product WHERE (total_profit_on_sales / weight) > (SELECT AVG(total_profit_on_sales / weight) FROM product)")
+    cursor.execute("SELECT COUNT(*) FROM product WHERE (total_profit_on_sales / number_sold) > (SELECT AVG(total_profit_on_sales / number_sold) FROM product)")
     result = cursor.fetchone()
     return jsonify(result)
 
@@ -473,70 +593,84 @@ def get_available_quantity(product_id):
 # returning all products in page nation from db 
 @app.route('/getProductspn', methods=['GET'])
 def get_productspn():
+    try:
+        # بررسی و اطمینان از زنده بودن اتصال
+        if not connection.is_connected():
+            connection.reconnect(attempts=3, delay=2)
+    except mysql.connector.Error as err:
+        return jsonify({'error': str(err)}), 500
+
     cursor = connection.cursor()
 
+    # دریافت پارامترهای ورودی
     page = request.args.get('page', default=1, type=int)
     limit = request.args.get('limit', default=20, type=int)
     search = request.args.get('search', default='', type=str)
     category_id = request.args.get('category_id', type=int)
-    uom_id = request.args.get('uom_id', type=int)
-
-    offset = (page - 1) * limit
+    sort_field = request.args.get('sort', default='name')  # افزودن پارامتر مرتب‌سازی
+    sort_order = request.args.get('order', default='asc')  # افزودن جهت مرتب‌سازی
 
     filters = []
-    params = []
+    query_params = []  # پارامترهای مربوط به فیلترها
 
+    # اعمال فیلتر برای جستجو و دسته‌بندی
     if search:
-        filters.append("(product.name LIKE %s OR category.category_name LIKE %s OR uom.uom_name LIKE %s)")
+        filters.append("(product.name LIKE %s OR category.category_name LIKE %s)")
         search_term = f"%{search}%"
-        params.extend([search_term, search_term, search_term])
+        query_params.extend([search_term, search_term])
     
     if category_id:
         filters.append("product.category_id = %s")
-        params.append(category_id)
-
-    if uom_id:
-        filters.append("product.uom_id = %s")
-        params.append(uom_id)
+        query_params.append(category_id)
 
     filter_query = " WHERE " + " AND ".join(filters) if filters else ""
 
-    query = f"""
-        SELECT product.product_id, product.name, product.uom_id, product.price_per_unit, 
-               product.available_quantity, product.image_address, product.category_id, 
-               uom.uom_name, category.category_name 
-        FROM grocery_store.product 
-        JOIN uom ON product.uom_id = uom.uom_id 
+    # تعریف دستور مرتب‌سازی پویا
+    valid_sort_fields = ['name', 'price_per_unit', 'available_quantity']
+    if sort_field in valid_sort_fields:
+        sort_direction = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
+        order_by_clause = f"ORDER BY product.{sort_field} {sort_direction}"
+    else:
+        order_by_clause = "ORDER BY product.name ASC"
+
+    # محاسبه تعداد کل محصولات پس از اعمال فیلترها
+    count_query = f"""
+        SELECT COUNT(*)
+        FROM grocery_store.product
         JOIN category ON product.category_id = category.category_id
         {filter_query}
+    """
+    cursor.execute(count_query, tuple(query_params))
+    total_products = cursor.fetchone()[0]
+    total_pages = (total_products + limit - 1) // limit
+
+    # کوئری اصلی: اعمال فیلترها، مرتب‌سازی و صفحه‌بندی
+    select_query = f"""
+        SELECT product.product_id, product.name, product.price_per_unit, 
+               product.available_quantity, product.image_address, product.category_id, 
+               category.category_name
+        FROM grocery_store.product
+        JOIN category ON product.category_id = category.category_id
+        {filter_query}
+        {order_by_clause}
         LIMIT %s OFFSET %s
     """
-    params.extend([limit, offset])
-    cursor.execute(query, tuple(params))
+    # ایجاد لیست جداگانه برای پارامترهای کوئری اصلی
+    select_params = list(query_params)
+    select_params.extend([limit, (page - 1) * limit])
+    cursor.execute(select_query, tuple(select_params))
 
     products = []
     for row in cursor.fetchall():
         products.append({
             'product_id': row[0],
             'name': row[1],
-            'uom_id': row[2],
-            'price_per_unit': row[3],
-            'available_quantity': row[4],
-            'image_address': row[5],
-            'category_id': row[6],
-            'uom_name': row[7],
-            'category_name': row[8]
+            'price_per_unit': row[2],
+            'available_quantity': row[3],
+            'image_address': row[4],
+            'category_id': row[5],
+            'category_name': row[6]
         })
-
-    count_query = f"""
-        SELECT COUNT(*) 
-        FROM grocery_store.product 
-        JOIN uom ON product.uom_id = uom.uom_id 
-        JOIN category ON product.category_id = category.category_id
-        {filter_query}
-    """
-    cursor.execute(count_query, tuple(params[:-2]))  # Exclude limit and offset
-    total_products = cursor.fetchone()[0]
 
     cursor.close()
 
@@ -544,9 +678,11 @@ def get_productspn():
         'page': page,
         'limit': limit,
         'total_products': total_products,
-        'total_pages': (total_products + limit - 1) // limit,
+        'total_pages': total_pages,
         'products': products
     })
+
+
 
 
 
@@ -901,6 +1037,8 @@ def get_category():
             categories = cursor.fetchall()
 
         response = [{'category_id': row[0], 'category_name': row[1]} for row in categories]
+
+        cursor.close()
 
         return jsonify(response)
     
