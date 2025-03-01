@@ -15,6 +15,7 @@ import Calendar from "@/components/template/calender";
 import TotalSale from "@/components/template/totalsale";
 import Profile from "@/components/template/profile";
 import Admin from "@/components/template/admin";
+import Expired from "@/components/template/Expired";
 
 function Sidebar() {
   const router = useRouter();
@@ -70,12 +71,13 @@ function Sidebar() {
         { label: "پروفایل شما" },
         { label: "اطلاعات فردی", link: "/info" },
         { label: "کارکرد شما", link: "/admin" },
-        { label: "خروج" , link: "/logout"},
+        { label: "خروج", link: "/logout" },
       ]);
     } else if (icon === "charts") {
       setSelectedOption([
         { label: "چارت ها" },
         { label: " برآورد کارکرد ها", link: "/charts" },
+        { label: "محصولات منقضی", link: "/expired" },
       ]);
     } else if (icon === "product") {
       setSelectedOption([
@@ -116,6 +118,8 @@ function Sidebar() {
       setActiveContent(<Product />);
     } else if (link === "/charts") {
       setActiveContent(<Performance />);
+    } else if (link === "/expired") {
+      setActiveContent(<Expired />);
     } else if (link === "/supply") {
       setActiveIcons((prevState) => ({
         ...prevState,
@@ -127,7 +131,7 @@ function Sidebar() {
     } else if (link === "/mainpage") {
       setActiveContent(<Product />);
     } else if (link === "/info") {
-      setActiveContent(<Profile/>);
+      setActiveContent(<Profile />);
     } else if (link === "/logout") {
       router.push("./login");
     } else if (link === "/calender") {
@@ -154,11 +158,11 @@ function Sidebar() {
       <div
         className="bg-[#57c4f5]"
         style={{
-            backgroundImage: `
+          backgroundImage: `
       linear-gradient(to bottom, rgba(241, 245, 249, 0), rgba(255,255,255,1)90%),
       linear-gradient(to right, rgba(87,196,245,1), rgba(87,196,245,1))
     `,
-          }}
+        }}
       >
         <div className="h-screen sticky -top-3 mt-10 rounded-se-2xl bg-purple-50 grid grid-cols-[30%,70%]">
           <div className="flex flex-col pt-5 items-center space-y-8 border-l-2 border-dashed">
