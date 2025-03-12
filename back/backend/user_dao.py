@@ -1,4 +1,4 @@
-from back.sql_connection import get_sql_connection
+from back.db_connection import get_sql_connection
 
 #from werkzeug.security import generate_password_hash
 

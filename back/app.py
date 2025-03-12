@@ -1,26 +1,54 @@
-import os
 from flask import Flask, jsonify, request
 import mysql.connector
-import cv2
-from sql_connection import get_sql_connection
 from flask_cors import CORS
-from flask import send_from_directory
-
-
+from functools import wraps
+import os
+from db_connection import get_db_connection, close_connection
 
 app = Flask(__name__)
 CORS(app)
+
+# Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 NEW_PRODUCT_IMG = os.path.join(BASE_DIR, 'new_product_img')
-
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(NEW_PRODUCT_IMG, exist_ok=True)
-
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['NEW_PRODUCT_IMG'] = NEW_PRODUCT_IMG
 
-connection = get_sql_connection()
+# Custom error handler for database errors
+@app.errorhandler(mysql.connector.Error)
+def handle_db_error(error):
+    """Handle database errors and return appropriate JSON response."""
+    return jsonify({
+        "error": str(error),
+        "code": error.errno if hasattr(error, 'errno') else 500
+    }), 500
+
+# Corrected decorator for database operations
+def with_db_connection(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        connection = None
+        cursor = None
+        try:
+            connection = get_db_connection()
+            cursor = connection.cursor()
+            result = func(connection, cursor, *args, **kwargs)
+            connection.commit()
+            return result
+        except mysql.connector.Error as err:
+            if connection.is_connected():
+                connection.rollback()
+            raise err
+        finally:
+            if cursor:
+                cursor.close()
+            if connection:
+                close_connection(connection)
+    return wrapper
+
 
 # ---------------------------------------------------------------------------------------------
 # product data access 
@@ -70,26 +98,26 @@ def capture_images():
 # T $
 # 1. تعداد کل محصولات
 @app.route('/total_products', methods=['GET'])
-def total_products():
-    cursor = connection.cursor()
+@with_db_connection
+def total_products(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product")
     result = cursor.fetchone()
-    return jsonify(result)
+    return jsonify({"total_products": result[0]})
 
 # T
 # 2. میانگین قیمت هر واحد
 @app.route('/average_price', methods=['GET'])
-def average_price():
-    cursor = connection.cursor()
+@with_db_connection
+def average_price(connection, cursor):
     cursor.execute("SELECT AVG(price_per_unit) FROM product")
     result = cursor.fetchone()
-    return jsonify(result)
+    return jsonify({"average_price": result[0]}) 
 
 # T
 # 3. بیشترین تخفیف داده شده
 @app.route('/max_discount', methods=['GET'])
-def max_discount():
-    cursor = connection.cursor()
+@with_db_connection
+def max_discount(connection, cursor):
     cursor.execute("SELECT MAX(discount_percentage) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -97,8 +125,8 @@ def max_discount():
 # T
 # 4. کمترین وزن
 @app.route('/min_weight', methods=['GET'])
-def min_weight():
-    cursor = connection.cursor()
+@with_db_connection
+def min_weight(connection, cursor):
     cursor.execute("SELECT MIN(weight) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -106,82 +134,69 @@ def min_weight():
 # T
 # 5. مجموع سود
 @app.route('/total_profit', methods=['GET'])
-def total_profit():
-    cursor = connection.cursor()
+@with_db_connection
+def total_profit(connection, cursor):
     cursor.execute("SELECT SUM(total_profit_on_sales) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
 
 # T
 # 6. تعداد محصولات منقضی شده
-@app.route('/expired_products', methods=['GET'])
-def expired_products():
-    cursor = connection.cursor()
-    cursor.execute("SELECT COUNT(*) FROM product WHERE expiration_date < CURDATE()")
-    result = cursor.fetchone()
-    return jsonify(result)
-
-# 6.2 لیست محصولات منقضی شده با پیجینیشن
 @app.route('/expired_productspn', methods=['GET'])
-def expired_productspn():
-    try:
-        # بررسی اتصال به دیتابیس
-        if not connection.is_connected():
-            connection.reconnect(attempts=3, delay=2)
-    except mysql.connector.Error as err:
-        return jsonify({"error": str(err)}), 500
-
-    cursor = connection.cursor()
-
+@with_db_connection
+def expired_productspn(connection, cursor):
     # دریافت پارامترهای صفحه‌بندی
     page = request.args.get('page', default=1, type=int)
     limit = request.args.get('limit', default=20, type=int)
     
-    # شمارش تعداد کل محصولات منقضی شده
-    count_query = "SELECT COUNT(*) FROM product WHERE expiration_date < CURDATE()"
-    cursor.execute(count_query)
-    total_products = cursor.fetchone()[0]
-    total_pages = (total_products + limit - 1) // limit
+    try:
+        # شمارش تعداد کل محصولات منقضی شده
+        count_query = "SELECT COUNT(*) FROM product WHERE expiration_date < CURDATE()"
+        cursor.execute(count_query)
+        total_products = cursor.fetchone()[0]
+        total_pages = (total_products + limit - 1) // limit
 
-    # دریافت لیست محصولات منقضی شده با استفاده از LIMIT و OFFSET
-    select_query = """
-        SELECT product_id, name, price_per_unit, available_quantity, image_address, expiration_date, category_id
-        FROM product
-        WHERE expiration_date < CURDATE()
-        ORDER BY expiration_date ASC
-        LIMIT %s OFFSET %s
-    """
-    offset = (page - 1) * limit
-    cursor.execute(select_query, (limit, offset))
+        # دریافت لیست محصولات منقضی شده
+        select_query = """
+            SELECT product_id, name, price_per_unit, available_quantity, image_address, 
+                   expiration_date, category_id
+            FROM product
+            WHERE expiration_date < CURDATE()
+            ORDER BY expiration_date ASC
+            LIMIT %s OFFSET %s
+        """
+        offset = (page - 1) * limit
+        cursor.execute(select_query, (limit, offset))
 
-    products = []
-    for row in cursor.fetchall():
-        products.append({
-            "product_id": row[0],
-            "name": row[1],
-            "price_per_unit": row[2],
-            "available_quantity": row[3],
-            "image_address": row[4],
-            "expiration_date": row[5].isoformat() if row[5] else None,
-            "category_id": row[6]
+        products = []
+        for row in cursor.fetchall():
+            products.append({
+                "product_id": row[0],
+                "name": row[1],
+                "price_per_unit": row[2],
+                "available_quantity": row[3],
+                "image_address": row[4],
+                "expiration_date": row[5].isoformat() if row[5] else None,
+                "category_id": row[6]
+            })
+
+        return jsonify({
+            "page": page,
+            "limit": limit,
+            "total_products": total_products,
+            "total_pages": total_pages,
+            "products": products
         })
 
-    cursor.close()
-
-    return jsonify({
-        "page": page,
-        "limit": limit,
-        "total_products": total_products,
-        "total_pages": total_pages,
-        "products": products
-    })
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
 
 
 # T
 # 7. تعداد محصولات در حال انقضاء (در یک ماه آینده)
 @app.route('/expiring_products', methods=['GET'])
-def expiring_products():
-    cursor = connection.cursor()
+@with_db_connection
+def expiring_products(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)")
     result = cursor.fetchone()
     return jsonify(result)
@@ -190,71 +205,65 @@ def expiring_products():
 
 # 7.2 لیست محصولات در حال انقضاء (در یک ماه آینده) با پیجینیشن
 @app.route('/expiring_productspn', methods=['GET'])
-def expiring_productspn():
-    try:
-        # بررسی اتصال به دیتابیس
-        if not connection.is_connected():
-            connection.reconnect(attempts=3, delay=2)
-    except mysql.connector.Error as err:
-        return jsonify({"error": str(err)}), 500
-
-    cursor = connection.cursor()
-
+@with_db_connection
+def expiring_productspn(connection, cursor):
     # دریافت پارامترهای صفحه‌بندی
     page = request.args.get('page', default=1, type=int)
     limit = request.args.get('limit', default=20, type=int)
     
-    # شمارش تعداد کل محصولات در حال انقضاء
-    count_query = """
-        SELECT COUNT(*) 
-        FROM product 
-        WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
-    """
-    cursor.execute(count_query)
-    total_products = cursor.fetchone()[0]
-    total_pages = (total_products + limit - 1) // limit
+    try:
+        # شمارش تعداد کل محصولات در حال انقضاء
+        count_query = """
+            SELECT COUNT(*) 
+            FROM product 
+            WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
+        """
+        cursor.execute(count_query)
+        total_products = cursor.fetchone()[0]
+        total_pages = (total_products + limit - 1) // limit
 
-    # دریافت لیست محصولات در حال انقضاء با استفاده از LIMIT و OFFSET
-    select_query = """
-        SELECT product_id, name, price_per_unit, available_quantity, image_address, expiration_date, category_id
-        FROM product
-        WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
-        ORDER BY expiration_date ASC
-        LIMIT %s OFFSET %s
-    """
-    offset = (page - 1) * limit
-    cursor.execute(select_query, (limit, offset))
+        # دریافت لیست محصولات در حال انقضاء
+        select_query = """
+            SELECT product_id, name, price_per_unit, available_quantity, image_address, 
+                   expiration_date, category_id
+            FROM product
+            WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
+            ORDER BY expiration_date ASC
+            LIMIT %s OFFSET %s
+        """
+        offset = (page - 1) * limit
+        cursor.execute(select_query, (limit, offset))
 
-    products = []
-    for row in cursor.fetchall():
-        products.append({
-            "product_id": row[0],
-            "name": row[1],
-            "price_per_unit": row[2],
-            "available_quantity": row[3],
-            "image_address": row[4],
-            "expiration_date": row[5].isoformat() if row[5] else None,
-            "category_id": row[6]
+        products = []
+        for row in cursor.fetchall():
+            products.append({
+                "product_id": row[0],
+                "name": row[1],
+                "price_per_unit": row[2],
+                "available_quantity": row[3],
+                "image_address": row[4],
+                "expiration_date": row[5].isoformat() if row[5] else None,
+                "category_id": row[6]
+            })
+
+        return jsonify({
+            "page": page,
+            "limit": limit,
+            "total_products": total_products,
+            "total_pages": total_pages,
+            "products": products
         })
 
-    cursor.close()
-
-    return jsonify({
-        "page": page,
-        "limit": limit,
-        "total_products": total_products,
-        "total_pages": total_pages,
-        "products": products
-    })
-
+    except mysql.connector.Error as err:
+        return jsonify({"error": str(err)}), 500
 
 
 
 # T
 # 8. تعداد محصولات بدون تخفیف
 @app.route('/no_discount_products', methods=['GET'])
-def no_discount_products():
-    cursor = connection.cursor()
+@with_db_connection
+def no_discount_products(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE discount_percentage = 0")
     result = cursor.fetchone()
     return jsonify(result)
@@ -262,34 +271,26 @@ def no_discount_products():
 # T
 # 9. مجموع وزن محصولات
 @app.route('/total_weight', methods=['GET'])
-def total_weight():
-    cursor = connection.cursor()
-
-    # گرفتن نام محصول، وزن، میزان خطا، و تعداد موجودی از دیتابیس
+@with_db_connection
+def total_weight(connection, cursor):
     cursor.execute("SELECT name, weight, error_rate_in_weight, available_quantity FROM product")
     results = cursor.fetchall()
     
-    cursor.close()
-
     if results:
         total_weight_sum = 0
         products = []
-
         for name, weight, error_rate, quantity in results:
             corrected_weight = (weight + (weight * error_rate)) * quantity
             total_weight_sum += corrected_weight
             products.append({"name": name, "corrected_weight": corrected_weight})
-
         return jsonify({"total_weight": total_weight_sum, "products": products})
-
-    else:
-        return jsonify({"error": "No products found"}), 404
+    return jsonify({"error": "No products found"}), 404
 
 # T
 # 10. بیشترین قیمت هر واحد
 @app.route('/max_price', methods=['GET'])
-def max_price():
-    cursor = connection.cursor()
+@with_db_connection
+def max_price(connection, cursor):
     cursor.execute("SELECT MAX(price_per_unit) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -297,8 +298,8 @@ def max_price():
 # T
 # 11. کمترین قیمت هر واحد
 @app.route('/min_price', methods=['GET'])
-def min_price():
-    cursor = connection.cursor()
+@with_db_connection
+def min_price(connection, cursor):
     cursor.execute("SELECT MIN(price_per_unit) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -306,8 +307,8 @@ def min_price():
 # T
 # 12. تعداد محصولات با قیمت بیش از 10000 تومان
 @app.route('/price_above_10000', methods=['GET'])
-def price_above_10000():
-    cursor = connection.cursor()
+@with_db_connection
+def price_above_10000(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE price_per_unit > 10000")
     result = cursor.fetchone()
     return jsonify(result)
@@ -315,8 +316,8 @@ def price_above_10000():
 # T
 # 13. تعداد محصولات با وزن کمتر از 500 گرم
 @app.route('/weight_below_500', methods=['GET'])
-def weight_below_500():
-    cursor = connection.cursor()
+@with_db_connection
+def weight_below_500(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE weight < 500")
     result = cursor.fetchone()
     return jsonify(result)
@@ -324,8 +325,8 @@ def weight_below_500():
 # T
 # 14. میانگین درصد تخفیف
 @app.route('/average_discount', methods=['GET'])
-def average_discount():
-    cursor = connection.cursor()
+@with_db_connection
+def average_discount(connection, cursor):
     cursor.execute("SELECT AVG(discount_percentage) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -333,8 +334,8 @@ def average_discount():
 # T
 # 15. تعداد محصولات با سود بیش از 100000 تومان
 @app.route('/profit_above_1000', methods=['GET'])
-def profit_above_1000():
-    cursor = connection.cursor()
+@with_db_connection
+def profit_above_1000(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE total_profit_on_sales > 100000")
     result = cursor.fetchone()
     return jsonify(result)
@@ -342,8 +343,8 @@ def profit_above_1000():
 # T
 # 16. تعداد محصولات با تخفیف کمتر از 10 درصد
 @app.route('/discount_below_10', methods=['GET'])
-def discount_below_10():
-    cursor = connection.cursor()
+@with_db_connection
+def discount_below_10(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE discount_percentage < 10")
     result = cursor.fetchone()
     return jsonify(result)
@@ -351,8 +352,8 @@ def discount_below_10():
 # T
 # 17. میانگین وزن محصولات
 @app.route('/average_weight', methods=['GET'])
-def average_weight():
-    cursor = connection.cursor()
+@with_db_connection
+def average_weight(connection, cursor):
     cursor.execute("SELECT AVG(weight) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -360,8 +361,8 @@ def average_weight():
 # T
 # 18. بیشترین سود هر محصول
 @app.route('/max_profit', methods=['GET'])
-def max_profit():
-    cursor = connection.cursor()
+@with_db_connection
+def max_profit(connection, cursor):
     cursor.execute("SELECT MAX(total_profit_on_sales) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -369,8 +370,8 @@ def max_profit():
 # T
 # 19. کمترین سود هر محصول
 @app.route('/min_profit', methods=['GET'])
-def min_profit():
-    cursor = connection.cursor()
+@with_db_connection
+def min_profit(connection, cursor):
     cursor.execute("SELECT MIN(total_profit_on_sales) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -378,8 +379,8 @@ def min_profit():
 # T
 # 20. تعداد محصولات با سود منفی (ضرر)
 @app.route('/negative_profit_products', methods=['GET'])
-def negative_profit_products():
-    cursor = connection.cursor()
+@with_db_connection
+def negative_profit_products(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE total_profit_on_sales < 0")
     result = cursor.fetchone()
     return jsonify(result)
@@ -387,8 +388,8 @@ def negative_profit_products():
 # T
 # 21. مجموع تخفیف‌ها
 @app.route('/total_discounts', methods=['GET'])
-def total_discounts():
-    cursor = connection.cursor()
+@with_db_connection
+def total_discounts(connection, cursor):
     cursor.execute("SELECT SUM(discount_percentage) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -396,8 +397,8 @@ def total_discounts():
 # T
 # 22. تعداد محصولات با قیمت بین 5000 تا 10000 تومان
 @app.route('/price_between_5000_10000', methods=['GET'])
-def price_between_5000_10000():
-    cursor = connection.cursor()
+@with_db_connection
+def price_between_5000_10000(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE price_per_unit BETWEEN 5000 AND 10000")
     result = cursor.fetchone()
     return jsonify(result)
@@ -405,8 +406,8 @@ def price_between_5000_10000():
 # T
 # 23. میانگین سود هر محصول
 @app.route('/average_profit', methods=['GET'])
-def average_profit():
-    cursor = connection.cursor()
+@with_db_connection
+def average_profit(connection, cursor):
     cursor.execute("SELECT AVG(total_profit_on_sales) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -414,8 +415,8 @@ def average_profit():
 # T
 # 24. تعداد محصولات با وزن بین 500 تا 1000 گرم
 @app.route('/weight_between_500_1000', methods=['GET'])
-def weight_between_500_1000():
-    cursor = connection.cursor()
+@with_db_connection
+def weight_between_500_1000(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE weight BETWEEN 500 AND 1000")
     result = cursor.fetchone()
     return jsonify(result)
@@ -423,8 +424,8 @@ def weight_between_500_1000():
 # T
 # 25. بیشترین سود در فروش
 @app.route('/max_sales_profit', methods=['GET'])
-def max_sales_profit():
-    cursor = connection.cursor()
+@with_db_connection
+def max_sales_profit(connection, cursor):
     cursor.execute("SELECT MAX(total_profit_on_sales) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -432,8 +433,8 @@ def max_sales_profit():
 # T
 # 26. کمترین سود در فروش
 @app.route('/min_sales_profit', methods=['GET'])
-def min_sales_profit():
-    cursor = connection.cursor()
+@with_db_connection
+def min_sales_profit(connection, cursor):
     cursor.execute("SELECT MIN(total_profit_on_sales) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -441,8 +442,8 @@ def min_sales_profit():
 # T
 # 27. میانگین قیمت محصولات بدون تخفیف
 @app.route('/average_price_no_discount', methods=['GET'])
-def average_price_no_discount():
-    cursor = connection.cursor()
+@with_db_connection
+def average_price_no_discount(connection, cursor):
     cursor.execute("SELECT AVG(price_per_unit) FROM product WHERE discount_percentage = 0")
     result = cursor.fetchone()
     return jsonify(result)
@@ -450,8 +451,8 @@ def average_price_no_discount():
 # T
 # 28. تعداد محصولات با سود بالای 500 تومان
 @app.route('/profit_above_500', methods=['GET'])
-def profit_above_500():
-    cursor = connection.cursor()
+@with_db_connection
+def profit_above_500(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE total_profit_on_sales > 500")
     result = cursor.fetchone()
     return jsonify(result)
@@ -459,8 +460,8 @@ def profit_above_500():
 # T
 # 29. میانگین سود هر واحد
 @app.route('/average_profit_per_unit', methods=['GET'])
-def average_profit_per_unit():
-    cursor = connection.cursor()
+@with_db_connection
+def average_profit_per_unit(connection, cursor):
     cursor.execute("SELECT AVG(total_profit_on_sales / number_sold) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -468,8 +469,8 @@ def average_profit_per_unit():
 # T
 # 30. مجموع تعداد واحدهای فروخته شده
 @app.route('/total_units_sold', methods=['GET'])
-def total_units_sold():
-    cursor = connection.cursor()
+@with_db_connection
+def total_units_sold(connection, cursor):
     cursor.execute("SELECT SUM(number_sold) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -477,8 +478,8 @@ def total_units_sold():
 # T
 # 31. بیشترین تعداد واحدهای فروخته شده از یک محصول
 @app.route('/max_units_sold', methods=['GET'])
-def max_units_sold():
-    cursor = connection.cursor()
+@with_db_connection
+def max_units_sold(connection, cursor):
     cursor.execute("SELECT MAX(number_sold) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -486,8 +487,8 @@ def max_units_sold():
 # T
 # 32. کمترین تعداد واحدهای فروخته شده از یک محصول
 @app.route('/min_units_sold', methods=['GET'])
-def min_units_sold():
-    cursor = connection.cursor()
+@with_db_connection
+def min_units_sold(connection, cursor):
     cursor.execute("SELECT MIN(number_sold) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -495,8 +496,8 @@ def min_units_sold():
 # T
 # 33. میانگین تعداد واحدهای فروخته شده از یک محصول
 @app.route('/average_units_sold', methods=['GET'])
-def average_units_sold():
-    cursor = connection.cursor()
+@with_db_connection
+def average_units_sold(connection, cursor):
     cursor.execute("SELECT AVG(number_sold) FROM product")
     result = cursor.fetchone()
     return jsonify(result)
@@ -504,8 +505,8 @@ def average_units_sold():
 # T
 # 34. تعداد محصولات با قیمت بیش از میانگین قیمت
 @app.route('/price_above_average', methods=['GET'])
-def price_above_average():
-    cursor = connection.cursor()
+@with_db_connection
+def price_above_average(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE price_per_unit > (SELECT AVG(price_per_unit) FROM product)")
     result = cursor.fetchone()
     return jsonify(result)
@@ -513,11 +514,12 @@ def price_above_average():
 # T
 # 35. تعداد محصولات با تخفیف بیش از میانگین تخفیف
 @app.route('/discount_above_average', methods=['GET'])
-def discount_above_average():
-    cursor = connection.cursor()
+@with_db_connection
+def discount_above_average(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE discount_percentage > (SELECT AVG(discount_percentage) FROM product)")
     result = cursor.fetchone()
     return jsonify(result)
+
 """
 # 36. بیشترین تعداد واحدهای فروخته شده در یک ماه
 @app.route('/max_units_sold_in_month', methods=['GET'])
@@ -555,8 +557,8 @@ def average_units_sold_in_month():
 # T
 # 40. تعداد محصولات با سود هر واحد بیش از میانگین سود هر واحد
 @app.route('/profit_per_unit_above_average', methods=['GET'])
-def profit_per_unit_above_average():
-    cursor = connection.cursor()
+@with_db_connection
+def profit_per_unit_above_average(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE (total_profit_on_sales / number_sold) > (SELECT AVG(total_profit_on_sales / number_sold) FROM product)")
     result = cursor.fetchone()
     return jsonify(result)
@@ -567,22 +569,13 @@ def profit_per_unit_above_average():
 
 # get available quantity of a product
 @app.route('/getAvailableQuantity/<int:product_id>', methods=['GET'])
-def get_available_quantity(product_id):
-
-    cursor = connection.cursor()
-
-    query = "SELECT available_quantity FROM grocery_store.product WHERE product_id = %s"
-    cursor.execute(query, (product_id,))
-
+@with_db_connection
+def get_available_quantity(connection, cursor, product_id):
+    cursor.execute("SELECT available_quantity FROM grocery_store.product WHERE product_id = %s", (product_id,))
     result = cursor.fetchone()
-
-    cursor.close()
-    # connection.close()
-
     if result:
         return jsonify({'available_quantity': result[0]})
-    else:
-        return jsonify({'error': 'Product not found'}), 404
+    return jsonify({'error': 'Product not found'}), 404
 
 
 
@@ -592,48 +585,52 @@ def get_available_quantity(product_id):
 # if its worked delete this line and replace it by T
 # returning all products in page nation from db 
 @app.route('/getProductspn', methods=['GET'])
-def get_productspn():
+@with_db_connection
+def get_productspn(connection, cursor):
     try:
-        # بررسی و اطمینان از زنده بودن اتصال
+        # Validate database connection
         if not connection.is_connected():
             connection.reconnect(attempts=3, delay=2)
     except mysql.connector.Error as err:
         return jsonify({'error': str(err)}), 500
 
-    cursor = connection.cursor()
-
-    # دریافت پارامترهای ورودی
+    # Retrieve query parameters
     page = request.args.get('page', default=1, type=int)
     limit = request.args.get('limit', default=20, type=int)
     search = request.args.get('search', default='', type=str)
     category_id = request.args.get('category_id', type=int)
-    sort_field = request.args.get('sort', default='name')  # افزودن پارامتر مرتب‌سازی
-    sort_order = request.args.get('order', default='asc')  # افزودن جهت مرتب‌سازی
+    min_price = request.args.get('minPrice', default=0, type=int)
+    max_price = request.args.get('maxPrice', default=0, type=int)
+    sort_field = request.args.get('sort', default='name', type=str)
+    sort_order = request.args.get('order', default='asc', type=str)
 
+    # Filters and query parameters
     filters = []
-    query_params = []  # پارامترهای مربوط به فیلترها
+    query_params = []
 
-    # اعمال فیلتر برای جستجو و دسته‌بندی
     if search:
         filters.append("(product.name LIKE %s OR category.category_name LIKE %s)")
         search_term = f"%{search}%"
         query_params.extend([search_term, search_term])
     
-    if category_id:
+    if category_id is not None:
         filters.append("product.category_id = %s")
         query_params.append(category_id)
+    
+    if min_price > 0 or max_price > 0:
+        filters.append("product.price_per_unit BETWEEN %s AND %s")
+        query_params.extend([min_price, max_price])
 
     filter_query = " WHERE " + " AND ".join(filters) if filters else ""
 
-    # تعریف دستور مرتب‌سازی پویا
+    # Sorting
     valid_sort_fields = ['name', 'price_per_unit', 'available_quantity']
-    if sort_field in valid_sort_fields:
-        sort_direction = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
-        order_by_clause = f"ORDER BY product.{sort_field} {sort_direction}"
-    else:
-        order_by_clause = "ORDER BY product.name ASC"
+    if sort_field not in valid_sort_fields:
+        sort_field = 'name'  # Fallback to a default sort field
+    sort_direction = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
+    order_by_clause = f"ORDER BY product.{sort_field} {sort_direction}"
 
-    # محاسبه تعداد کل محصولات پس از اعمال فیلترها
+    # Total product count query
     count_query = f"""
         SELECT COUNT(*)
         FROM grocery_store.product
@@ -644,25 +641,21 @@ def get_productspn():
     total_products = cursor.fetchone()[0]
     total_pages = (total_products + limit - 1) // limit
 
-    # کوئری اصلی: اعمال فیلترها، مرتب‌سازی و صفحه‌بندی
+    # Product list query with pagination
     select_query = f"""
-        SELECT product.product_id, product.name, product.price_per_unit, 
-               product.available_quantity, product.image_address, product.category_id, 
-               category.category_name
+        SELECT product_id, name, price_per_unit, available_quantity, image_address, category_id,
+               category_name
         FROM grocery_store.product
         JOIN category ON product.category_id = category.category_id
         {filter_query}
         {order_by_clause}
         LIMIT %s OFFSET %s
     """
-    # ایجاد لیست جداگانه برای پارامترهای کوئری اصلی
-    select_params = list(query_params)
-    select_params.extend([limit, (page - 1) * limit])
-    cursor.execute(select_query, tuple(select_params))
+    offset = (page - 1) * limit
+    cursor.execute(select_query, tuple(query_params + [limit, offset]))
 
-    products = []
-    for row in cursor.fetchall():
-        products.append({
+    products = [
+        {
             'product_id': row[0],
             'name': row[1],
             'price_per_unit': row[2],
@@ -670,9 +663,9 @@ def get_productspn():
             'image_address': row[4],
             'category_id': row[5],
             'category_name': row[6]
-        })
-
-    cursor.close()
+        }
+        for row in cursor.fetchall()
+    ]
 
     return jsonify({
         'page': page,
@@ -687,21 +680,20 @@ def get_productspn():
 
 
 
+
 # T
 # returning all products in db
 @app.route('/getProducts', methods=['GET'])
-def get_products():
-    cursor = connection.cursor()
-
-    query = """SELECT product.product_id, product.name, product.uom_id, product.price_per_unit, 
-                    product.available_quantity, product.image_address, product.category_id, 
-                    uom.uom_name, category.category_name 
-                FROM grocery_store.product 
-                JOIN uom ON product.uom_id = uom.uom_id 
+@with_db_connection
+def get_products(connection, cursor):
+    query = """SELECT product.product_id, product.name, product.uom_id, product.price_per_unit,
+                    product.available_quantity, product.image_address, product.category_id,
+                    uom.uom_name, category.category_name
+                FROM grocery_store.product
+                JOIN uom ON product.uom_id = uom.uom_id
                 JOIN category ON product.category_id = category.category_id"""
-
-    cursor.execute(query)
     
+    cursor.execute(query)
     products = []
     for row in cursor.fetchall():
         product = {
@@ -716,10 +708,6 @@ def get_products():
             'category_name': row[8]
         }
         products.append(product)
-
-    cursor.close()
-    # connection.close()
-
     return jsonify(products)
 
 @app.route('/productimages/<filename>')
@@ -730,24 +718,23 @@ def uploaded_file(filename):
 # T
 # returning all entiteis of a specific product
 @app.route('/getProduct/<int:product_id>', methods=['GET'])
-def get_one_product(product_id):
-    cursor = connection.cursor()
-
-    query = """SELECT product.product_id, product.name, product.uom_id, product.price_per_unit, 
-    product.available_quantity, product.manufacturer_name, product.weight, product.purchase_price, 
-    product.discount_percentage, product.voluminosity, product.combinations, 
-    product.nutritional_information, product.expiration_date, product.storage_conditions, 
-    product.number_sold, product.date_added_to_stock, product.total_profit_on_sales, 
-    product.error_rate_in_weight, product.image_address, product.category_id, 
-    uom.uom_name, category.category_name 
-    FROM grocery_store.product 
-    JOIN uom ON product.uom_id = uom.uom_id 
-    JOIN category ON product.category_id = category.category_id 
-    WHERE product.product_id = %s"""
-
+@with_db_connection
+def get_one_product(connection, cursor, product_id):
+    query = """SELECT product.product_id, product.name, product.uom_id, product.price_per_unit,
+                    product.available_quantity, product.manufacturer_name, product.weight, 
+                    product.purchase_price, product.discount_percentage, product.voluminosity,
+                    product.combinations, product.nutritional_information, product.expiration_date,
+                    product.storage_conditions, product.number_sold, product.date_added_to_stock,
+                    product.total_profit_on_sales, product.error_rate_in_weight, product.image_address,
+                    product.category_id, uom.uom_name, category.category_name
+                FROM grocery_store.product
+                JOIN uom ON product.uom_id = uom.uom_id
+                JOIN category ON product.category_id = category.category_id
+                WHERE product.product_id = %s"""
+    
     cursor.execute(query, (product_id,))
     product = cursor.fetchone()
-
+    
     if product is None:
         return jsonify({"error": "Product not found"}), 404
 
@@ -771,11 +758,10 @@ def get_one_product(product_id):
         'total_profit_on_sales': product[16],
         'error_rate_in_weight': product[17],
         'image_address': product[18],
-        'category_id': product[19],  # Now explicitly from product table
+        'category_id': product[19],
         'uom_name': product[20],
         'category_name': product[21]
     }
-
     return jsonify(response)
 
 
@@ -784,30 +770,30 @@ def get_one_product(product_id):
 # T
 # update all attribute of a product except id
 @app.route('/updateProduct/<int:product_id>', methods=['PUT'])
-def update_product(product_id):
+@with_db_connection
+def update_product(connection, cursor, product_id):
     try:
-        # First, retrieve the current image path from the database (in case we don't upload a new image)
-        cursor = connection.cursor()
+        # First, retrieve the current image path from the database
         cursor.execute("SELECT image_address FROM product WHERE product_id = %s", (product_id,))
         current_image_path = cursor.fetchone()
-
-        if current_image_path:
-            current_image_path = current_image_path[0]
-        else:
+        
+        if not current_image_path:
             return jsonify({'error': 'Product not found'}), 404
+        
+        current_image_path = current_image_path[0]
 
         # Check if a new image is uploaded
         if 'file' in request.files:
             file = request.files['file']
-            if file.filename != '':  # Ensure the file is not empty
+            if file.filename:
                 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
                 file.save(file_path)
-                # Use the new file path if a new image is uploaded
+                file_path = file_path
             else:
-                file_path = current_image_path  # Use the existing image path if no file is uploaded
+                file_path = current_image_path
         else:
-            file_path = current_image_path  # Use the existing image path if no file is uploaded
+            file_path = current_image_path
 
         # Extract product details from the form
         product_data = {
@@ -829,57 +815,53 @@ def update_product(product_id):
             'total_profit_on_sales': request.form.get('total_profit_on_sales'),
             'error_rate_in_weight': request.form.get('error_rate_in_weight'),
             'category_id': request.form.get('category_id'),
-            'image_address': file_path  # Set the image address (either new or old path)
+            'image_address': file_path
         }
 
         # Prepare the SQL UPDATE query
         sql = """UPDATE product SET 
                     name = %s, uom_id = %s, price_per_unit = %s, available_quantity = %s,
                     manufacturer_name = %s, weight = %s, purchase_price = %s, discount_percentage = %s,
-                    voluminosity = %s, combinations = %s, nutritional_information = %s, expiration_date = %s,
-                    storage_conditions = %s, number_sold = %s, date_added_to_stock = %s, total_profit_on_sales = %s,
-                    error_rate_in_weight = %s, image_address = %s, category_id = %s
+                    voluminosity = %s, combinations = %s, nutritional_information = %s, 
+                    expiration_date = %s, storage_conditions = %s, number_sold = %s, 
+                    date_added_to_stock = %s, total_profit_on_sales = %s, error_rate_in_weight = %s,
+                    image_address = %s, category_id = %s
                 WHERE product_id = %s"""
         
         values = (
             product_data['name'], product_data['uom_id'], product_data['price_per_unit'],
-            product_data['available_quantity'], product_data['manufacturer_name'], product_data['weight'],
-            product_data['purchase_price'], product_data['discount_percentage'], product_data['voluminosity'],
-            product_data['combinations'], product_data['nutritional_information'], product_data['expiration_date'],
-            product_data['storage_conditions'], product_data['number_sold'], product_data['date_added_to_stock'],
-            product_data['total_profit_on_sales'], product_data['error_rate_in_weight'], product_data['image_address'],
+            product_data['available_quantity'], product_data['manufacturer_name'], 
+            product_data['weight'], product_data['purchase_price'], product_data['discount_percentage'],
+            product_data['voluminosity'], product_data['combinations'], 
+            product_data['nutritional_information'], product_data['expiration_date'],
+            product_data['storage_conditions'], product_data['number_sold'], 
+            product_data['date_added_to_stock'], product_data['total_profit_on_sales'], 
+            product_data['error_rate_in_weight'], product_data['image_address'],
             product_data['category_id'], product_id
         )
 
-        # Execute the update query
         cursor.execute(sql, values)
         connection.commit()
-
         return jsonify({'message': 'Product updated successfully'})
 
     except mysql.connector.Error as err:
+        connection.rollback()
         return jsonify({'error': f"Database error: {str(err)}"}), 500
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-    finally:
-        if connection.is_connected():
-            cursor.close()
-            # connection.close()
-
 
 # T
 # inserting all attribute of a product 
 @app.route('/insertProduct', methods=['POST'])
-def insert_product():
+@with_db_connection
+def insert_product(connection, cursor):
     try:
         # Get the uploaded file
         file = request.files['file']
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
         file.save(file_path)
-
-        # Generate the relative path for the image
         relative_file_path = os.path.relpath(file_path, app.config['UPLOAD_FOLDER'])
 
         # Extract product details from the form
@@ -902,33 +884,30 @@ def insert_product():
             'total_profit_on_sales': request.form.get('total_profit_on_sales'),
             'error_rate_in_weight': request.form.get('error_rate_in_weight'),
             'category_id': request.form.get('category_id'),
-            'image_address': relative_file_path  # Store the relative path
+            'image_address': relative_file_path
         }
 
-        cursor = connection.cursor()
-
-        query = ("""INSERT INTO product (name, uom_id, price_per_unit, available_quantity,
-                    manufacturer_name, weight, purchase_price, discount_percentage, voluminosity,
-                    combinations, nutritional_information, expiration_date, storage_conditions,
-                    number_sold, date_added_to_stock, total_profit_on_sales, error_rate_in_weight, 
-                    image_address, category_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""")
-
+        query = """INSERT INTO product (
+                    name, uom_id, price_per_unit, available_quantity, manufacturer_name, 
+                    weight, purchase_price, discount_percentage, voluminosity, combinations,
+                    nutritional_information, expiration_date, storage_conditions, number_sold,
+                    date_added_to_stock, total_profit_on_sales, error_rate_in_weight,
+                    image_address, category_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+        
         data = (
-            product['name'], product['uom_id'], product['price_per_unit'], product['available_quantity'],
-            product['manufacturer_name'], product['weight'], product['purchase_price'],
-            product['discount_percentage'], product['voluminosity'], product['combinations'],
-            product['nutritional_information'], product['expiration_date'], product['storage_conditions'], 
-            product['number_sold'], product['date_added_to_stock'], product['total_profit_on_sales'], 
-            product['error_rate_in_weight'], product['image_address'], product['category_id']
+            product['name'], product['uom_id'], product['price_per_unit'],
+            product['available_quantity'], product['manufacturer_name'], product['weight'],
+            product['purchase_price'], product['discount_percentage'], product['voluminosity'],
+            product['combinations'], product['nutritional_information'], product['expiration_date'],
+            product['storage_conditions'], product['number_sold'], product['date_added_to_stock'],
+            product['total_profit_on_sales'], product['error_rate_in_weight'], product['image_address'],
+            product['category_id']
         )
 
         cursor.execute(query, data)
         connection.commit()
         product_id = cursor.lastrowid
-
-        cursor.close()
-
         return jsonify({'message': 'Product added successfully', 'product_id': product_id}), 201
 
     except mysql.connector.Error as err:
@@ -937,11 +916,11 @@ def insert_product():
 
 
 
-
 # T
 # worning !!! this function remove product from the universe (even in order_detale table like never exist)
 @app.route('/deleteProduct', methods=['POST'])
-def delete_product():
+@with_db_connection
+def delete_product(connection, cursor):
     if request.content_type != 'application/json':
         return jsonify({'error': 'Content-Type must be application/json'}), 415
 
@@ -953,33 +932,27 @@ def delete_product():
     if not product_id:
         return jsonify({'error': 'Product ID is required'}), 400
 
-    cursor = connection.cursor()
-
     try:
         # First, delete related records in order_details
-        delete_order_details_query = "DELETE FROM order_details WHERE product_id = %s"
-        cursor.execute(delete_order_details_query, (product_id,))
-
+        cursor.execute("DELETE FROM order_details WHERE product_id = %s", (product_id,))
+        
         # Now, delete the product itself
-        delete_product_query = "DELETE FROM product WHERE product_id = %s"
-        cursor.execute(delete_product_query, (product_id,))
-
+        cursor.execute("DELETE FROM product WHERE product_id = %s", (product_id,))
+        
         connection.commit()
         return jsonify({'message': 'Product deleted successfully', 'product_id': product_id}), 200
 
     except connection.Error as err:
-        connection.rollback()  # Rollback if any error occurs
+        connection.rollback()
         return jsonify({'error': str(err)}), 500
-
-    finally:
-        cursor.close()
 
 
 
 # T
 # delete one specific product(just delete those product that dont have any sall)
 @app.route('/deleteUnsallProduct', methods=['POST'])
-def delete_Unsall_product():
+@with_db_connection
+def delete_unsall_product(connection, cursor):
     if request.content_type != 'application/json':
         return jsonify({'error': 'Content-Type must be application/json'}), 415
 
@@ -991,27 +964,23 @@ def delete_Unsall_product():
     if not product_id:
         return jsonify({'error': 'Product ID is required'}), 400
 
-    cursor = connection.cursor()
+    try:
+        cursor.execute("DELETE FROM product WHERE product_id = %s", (product_id,))
+        connection.commit()
+        return jsonify({'product_id': product_id}), 200
 
-    # Delete from product table
-    delete_product_query = "DELETE FROM product WHERE product_id = %s"
-    cursor.execute(delete_product_query, (product_id,))
-
-    connection.commit()
-    cursor.close()
-
-    return jsonify({'product_id': product_id}), 200
+    except connection.Error as err:
+        connection.rollback()
+        return jsonify({'error': str(err)}), 500
 
 
 
 # T
 # return all unites of mesurment
 @app.route('/getUOM', methods=['GET'])
-def get_uom():
-    cursor = connection.cursor()
-    query = ("SELECT * from uom")
-    cursor.execute(query)
-    
+@with_db_connection
+def get_uom(connection, cursor):
+    cursor.execute("SELECT * FROM uom")
     response = []
     for (uom_id, uom_name) in cursor:
         response.append({
@@ -1025,16 +994,13 @@ def get_uom():
 # T
 # return all category
 @app.route('/getcategory', methods=['GET'])
-def get_category():
+@with_db_connection
+def get_category(connection, cursor):
     try:
-        # بررسی و اطمینان از زنده بودن اتصال
         if not connection.is_connected():
             connection.reconnect(attempts=3, delay=2)
-
-        with connection.cursor() as cursor:
-            query = "SELECT * FROM category"
-            cursor.execute(query)
-            categories = cursor.fetchall()
+        cursor.execute("SELECT * FROM category")
+        categories = cursor.fetchall()
 
         response = [{'category_id': row[0], 'category_name': row[1]} for row in categories]
 

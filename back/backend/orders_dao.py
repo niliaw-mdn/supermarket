@@ -1,5 +1,5 @@
 import back.product_dao as product_dao
-from back.sql_connection import get_sql_connection
+from back.db_connection import get_sql_connection
 from datetime import datetime
 from back.product_dao import get_available_quantity
 

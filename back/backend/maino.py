@@ -2,11 +2,11 @@ import json
 import threading
 from flask import Flask, request, jsonify, make_response, render_template, Response
 import camera_dao
-from back.sql_connection import get_sql_connection
+from back.db_connection import get_sql_connection
 import orders_dao
 import os
 from flask import Blueprint, request, Response, jsonify
-from back.sql_connection import get_sql_connection
+from back.db_connection import get_sql_connection
 from camera_dao import generate_frames, detection_counts
 
 from flask_jwt_extended import (
