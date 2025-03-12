@@ -9,183 +9,113 @@ import toast, { Toaster } from "react-hot-toast";
 
 function Allproduct({ searchQuery = "" }) {
   const router = useRouter();
-  const [fetchdata, setFetchdata] = useState([]);
-  const [openSection, setOpenSection] = useState(null);
-  const [minPrice, setMinPrice] = useState(0);
-  const [maxPrice, setMaxPrice] = useState(0);
-  const [isCategoryOpen, setIsCategoryOpen] = useState(false);
-  const [isPriceOpen, setIsPriceOpen] = useState(false);
-  const [isBrandOpen, setIsBrandOpen] = useState(false);
-  const [selectedBrands, setSelectedBrands] = useState([]);
+  const [filters, setFilters] = useState({
+    minPrice: 0,
+    maxPrice: 0,
+    selectedBrands: [],
+    selectedCategory: "",
+    isCategoryOpen: false,
+    isPriceOpen: false,
+    isBrandOpen: false,
+  });
   const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState("");
+  const [products, setProducts] = useState([]);
+  const [page, setPage] = useState(1);
+  const [limit] = useState(15);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [productDetails, setProductDetails] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState(null);
-  const [products, setProducts] = useState([]);
-  const [page, setPage] = useState(1);
-  const [limit] = useState(15); 
-  const [totalPages, setTotalPages] = useState(1);
-  const [loading, setLoading] = useState(true);
 
+  // Fetch initial data (minPrice, maxPrice, categories)
   useEffect(() => {
-    const fetchStatistics = async () => {
+    const fetchInitialData = async () => {
       try {
-        const [
-          minPriceResponse,
-          maxPriceResponse,
-        ] = await Promise.all([
-          axios.get("http://localhost:5000/min_price"),  
-          axios.get("http://localhost:5000/max_price"),  
+        const [minPriceRes, maxPriceRes, categoriesRes] = await Promise.all([
+          axios.get("http://localhost:5000/min_price"),
+          axios.get("http://localhost:5000/max_price"),
+          axios.get("http://localhost:5000/getcategory"),
         ]);
-  
-        if (minPriceResponse.data && maxPriceResponse.data) {
-          setMinPrice(minPriceResponse.data[0] || 0);
-          setMaxPrice(maxPriceResponse.data[0] || 0);
-        } else {
-          console.error("Invalid response data", minPriceResponse, maxPriceResponse);
-        }
+        setFilters((prev) => ({
+          ...prev,
+          minPrice: minPriceRes.data[0] || 0,
+          maxPrice: maxPriceRes.data[0] || 0,
+        }));
+        setCategories(categoriesRes.data);
       } catch (error) {
-        console.error("Error fetching statistics:", error);
+        console.error("Error fetching initial data:", error);
+        toast.error("Failed to load initial data.");
       }
     };
-  
-    fetchStatistics();
+    fetchInitialData();
   }, []);
-  
 
-
-  const backHandler = () => router.back();
-  const addItemHandler = () => router.push("./addItems");
-
+  // Fetch products based on filters and pagination
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchProducts = async () => {
+      setLoading(true);
       try {
-        const categoryResponse = await axios.get(
-          "http://localhost:5000/getcategory"
-        );
-        setCategories(categoryResponse.data);
-
-        const { data } = await axios.get(
-          `http://localhost:5000/getProductspn`,
-          {
-            params: {
-              page,
-              limit, 
-              category: selectedCategory || undefined,
-              brands: selectedBrands.length
-                ? selectedBrands.join(",")
-                : undefined,
-              minPrice: minPrice,
-              maxPrice: maxPrice,
-            },
-          }
-        );
-
+        const { data } = await axios.get("http://localhost:5000/getProductspn", {
+          params: {
+            page,
+            limit,
+            minPrice: filters.minPrice || 0, // Ensure default value is 0
+            maxPrice: filters.maxPrice || 0, // Ensure default value is 0
+            category_id: filters.selectedCategory || undefined, // Optional
+            search: searchQuery || undefined, // Optional
+            sort: filters.sortField || "name", // Optional, default to 'name'
+            order: filters.sortOrder || "asc", // Optional, default to 'asc'
+          },
+        });
         setProducts(data.products);
-        setTotalPages(data.total_pages); 
+        setTotalPages(data.total_pages);
       } catch (error) {
         console.error("Error fetching products:", error);
+        toast.error("Failed to load products.");
+      } finally {
+        setLoading(false);
       }
     };
+    fetchProducts();
+  }, [page, filters, searchQuery]);
 
-    fetchData();
-  }, [page, selectedCategory, selectedBrands, minPrice, maxPrice]);
-
-  const handleNextPage = () => {
-    if (page < totalPages) {
-      setPage(page + 1);
-    }
+  // Handle filter changes
+  const handleFilterChange = (key, value) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setPage(1); // Reset to first page when filters change
   };
 
-  const handlePrevPage = () => {
-    if (page > 1) {
-      setPage(page - 1);
-    }
-  };
-
-  const handleCategoryChange = (categoryName) => {
-    setSelectedCategory(categoryName);
-  };
-
-  const toggleBrandSelection = (brand) => {
-    setSelectedBrands((prev) =>
-      prev.includes(brand) ? prev.filter((b) => b !== brand) : [...prev, brand]
-    );
-  };
-
-  const filteredData = products.filter((item) => {
-    const matchesSearch = item.name
-      ? item.name.toLowerCase().includes(searchQuery.toLowerCase())
-      : false;
-
-    const matchesPrice =
-      item.price_per_unit >= minValue && item.price_per_unit <= maxValue;
-
-    const matchesBrand =
-      selectedBrands.length === 0 || selectedBrands.includes(item.brand);
-
-    const selectedCategoryId = categories.find(
-      (cat) => cat.category_name === selectedCategory
-    )?.category_id;
-
-    const matchesCategory =
-      !selectedCategory || item.category_id === selectedCategoryId;
-
-    return matchesSearch && matchesPrice && matchesBrand && matchesCategory;
-  });
-
-  const toggleSection = (section) => {
-    setOpenSection(openSection === section ? null : section);
-  };
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (!event.target.closest(".accordion")) {
-        setOpenSection(null);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
+  // Delete product
   const deleteProduct = async (productId) => {
+    if (!window.confirm("Are you sure you want to delete this product?")) return;
     setLoading(true);
-
     try {
-      const response = await axios.post("http://localhost:5000/deleteProduct", {
-        product_id: productId,
-      });
-
-      if (response.status === 200) {
-        toast.success("محصول با موفقیت حذف شد!");
-      }
+      await axios.post("http://localhost:5000/deleteProduct", { product_id: productId });
+      toast.success("Product deleted successfully!");
+      setProducts((prev) => prev.filter((p) => p.product_id !== productId));
     } catch (error) {
       console.error("Error deleting product:", error);
-      alert("There was an error deleting the product.");
+      toast.error("Failed to delete product.");
     } finally {
       setLoading(false);
     }
   };
 
-  const edit = (productId) => {
-    setSelectedProductId(productId);
-    setIsEditModalOpen(true);
-  };
-
+  // Open product details modal
   const openModal = async (productId) => {
     try {
-      const response = await axios.get(
-        `http://localhost:5000/getProduct/${productId}`
-      );
+      const response = await axios.get(`http://localhost:5000/getProduct/${productId}`);
       setProductDetails(response.data);
       setIsModalOpen(true);
     } catch (error) {
-      console.error("Error fetching product details: ", error);
+      console.error("Error fetching product details:", error);
+      toast.error("Failed to load product details.");
     }
   };
 
+  // Close modals
   const closeModal = () => {
     setIsModalOpen(false);
     setProductDetails(null);
@@ -199,183 +129,127 @@ function Allproduct({ searchQuery = "" }) {
   return (
     <>
       <Toaster />
-      <div className=" mb-[550px]  mx-5 ">
+      <div className="mb-[550px] mx-5">
         <h2 className="p-7 font-bold">محصولات موجود</h2>
         <div className="relative w-full">
-          <div
-            className="border-2 bg-white border-l-gray-500 shadow-md  shadow-black w-[320px] inline-block align-top"
-            style={{ verticalAlign: "top" }}
-          >
-            <div className="flex justify-between p-3">
-              <p className="font-bold text-xl text-slate-800">فیلترها</p>
-              <span>
-                <a href="#" className="text-teal-600">
-                  حذف فیلترها
-                </a>
-              </span>
+          {/* Filters Section */}
+          <div className="border-2 bg-white border-l-gray-500 shadow-md shadow-black w-[320px] inline-block align-top">
+            {/* Category Filter */}
+            <div className="relative w-full">
+              <button
+                onClick={() => handleFilterChange("isCategoryOpen", !filters.isCategoryOpen)}
+                className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
+              >
+                دسته بندی
+                <svg className="w-5 h-5 ml-2 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {filters.isCategoryOpen && (
+                <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5">
+                  <ul className="py-1 text-md divide-y-2 text-gray-700 text-center">
+                    {categories.map((category) => (
+                      <li key={category.category_id}>
+                        <button
+                          onClick={() => handleFilterChange("selectedCategory", category.category_name)}
+                          className="block px-4 py-2 hover:bg-gray-100 w-full"
+                        >
+                          {category.category_name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-            <div className="w-full">
-              <div className="relative  w-full">
-                <button
-                  onClick={() => setIsCategoryOpen(!isCategoryOpen)}
-                  className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
-                >
-                  دسته بندی
-                  <svg
-                    className="w-5 h-5 ml-2 text-gray-500"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                </button>
-                {isCategoryOpen && (
-                  <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5">
+
+            {/* Price Filter */}
+            <div className="relative w-full mt-4">
+              <button
+                onClick={() => handleFilterChange("isPriceOpen", !filters.isPriceOpen)}
+                className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
+              >
+                محدوده قیمت
+                <svg className="w-5 h-5 ml-2 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {filters.isPriceOpen && (
+                <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5 p-4">
+                  <div className="flex flex-col items-center">
+                    <div className="flex justify-between w-full mb-4">
+                      <label className="text-sm text-gray-600">
+                        حداقل قیمت:
+                        <input
+                          type="number"
+                          min="0"
+                          className="ml-2 border rounded-lg p-1 w-28"
+                          value={filters.minPrice}
+                          onChange={(e) => handleFilterChange("minPrice", Number(e.target.value))}
+                        />
+                      </label>
+                      <label className="text-sm text-gray-600">
+                        حداکثر قیمت:
+                        <input
+                          type="number"
+                          min="0"
+                          className="ml-2 border rounded-lg p-1 w-28"
+                          value={filters.maxPrice}
+                          onChange={(e) => handleFilterChange("maxPrice", Number(e.target.value))}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Brand Filter */}
+            <div className="relative w-full mt-4">
+              <button
+                onClick={() => handleFilterChange("isBrandOpen", !filters.isBrandOpen)}
+                className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
+              >
+                برند
+                <svg className="w-5 h-5 ml-2 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {filters.isBrandOpen && (
+                <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5 p-4">
+                  <div className="flex flex-col items-center">
                     <ul className="py-1 text-md divide-y-2 text-gray-700 text-center">
-                      {categories.map((category) => (
-                        <li key={category.category_id}>
-                          <a
-                            href="#"
-                            className="block px-4 py-2 hover:bg-gray-100"
-                            onClick={() =>
-                              handleCategoryChange(category.category_name)
+                      {["brand1", "brand2", "brand3", "brand4"].map((brand) => (
+                        <li key={brand}>
+                          <input
+                            type="checkbox"
+                            checked={filters.selectedBrands.includes(brand)}
+                            onChange={() =>
+                              handleFilterChange(
+                                "selectedBrands",
+                                filters.selectedBrands.includes(brand)
+                                  ? filters.selectedBrands.filter((b) => b !== brand)
+                                  : [...filters.selectedBrands, brand]
+                              )
                             }
-                          >
-                            {category.category_name}
-                          </a>
+                            className="ml-2 border rounded-lg p-1 w-28"
+                          />
+                          {brand}
                         </li>
                       ))}
                     </ul>
                   </div>
-                )}
-              </div>
-
-              <div className="relative w-full mt-4">
-                <button
-                  onClick={() => setIsPriceOpen(!isPriceOpen)}
-                  className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
-                >
-                  محدوده قیمت
-                  <svg
-                    className="w-5 h-5 ml-2 text-gray-500"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                </button>
-                {isPriceOpen && (
-                  <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5 p-4">
-                    <div className="flex flex-col items-center">
-                      <div className="flex justify-between w-full mb-4">
-                        <label className="text-sm text-gray-600">
-                          حداقل قیمت:
-                          <input
-                            type="number"
-                            min="1000"
-                            className="ml-2 border rounded-lg p-1 w-28"
-                            value={minValue}
-                            onChange={(e) =>
-                              setMinValue(Number(e.target.value))
-                            }
-                          />
-                        </label>
-                        <label className="text-sm text-gray-600">
-                          حداکثر قیمت:
-                          <input
-                            type="number"
-                            max="9000000000"
-                            className="ml-2 border rounded-lg p-1 w-28"
-                            value={maxValue}
-                            onChange={(e) =>
-                              setMaxValue(Number(e.target.value))
-                            }
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="relative w-full mt-4">
-                <button
-                  onClick={() => setIsBrandOpen(!isBrandOpen)}
-                  className="w-full inline-flex rounded-md bg-white px-7 pt-5 pb-3 font-medium text-gray-700 border-b-2"
-                >
-                  برند
-                  <svg
-                    className="w-5 h-5 ml-2 text-gray-500"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                </button>
-                {isBrandOpen && (
-                  <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5 p-4">
-                    <div className="flex flex-col items-center">
-                      <div className="flex justify-center w-full mb-4">
-                        <ul className="py-1 text-md divide-y-2 text-gray-700 text-center">
-                          {["brand1", "brand2", "brand3", "brand4"].map(
-                            (option) => (
-                              <li key={option}>
-                                <input
-                                  type="checkbox"
-                                  checked={selectedBrands.includes(option)}
-                                  onChange={() => toggleBrandSelection(option)}
-                                  className="ml-2 border rounded-lg p-1 w-28"
-                                />
-                                {option}
-                              </li>
-                            )
-                          )}
-                        </ul>
-                      </div>
-                      <button
-                        className="bg-green-500 text-white px-4 py-2 rounded-lg"
-                        onClick={() => setIsBrandOpen(false)}
-                      >
-                        اعمال فیلتر
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
 
-          <div
-            className="border-2 bg-white border-l-gray-500 shadow-md shadow-black w-[calc(100%-350px)] mr-5 inline-block align-top"
-            style={{ verticalAlign: "top" }}
-          >
+          {/* Products Table */}
+          <div className="border-2 bg-white border-l-gray-500 shadow-md shadow-black w-[calc(100%-350px)] mr-5 inline-block align-top">
             <table className="table-auto border-collapse border border-gray-300 w-full text-center h-full">
               <thead className="bg-gray-200">
                 <tr>
-                  <th className="border border-gray-300 px-4 py-2">
-                    نام محصول
-                  </th>
+                  <th className="border border-gray-300 px-4 py-2">نام محصول</th>
                   <th className="border border-gray-300 px-4 py-2">تصویر</th>
                   <th className="border border-gray-300 px-4 py-2">قیمت</th>
                   <th className="border border-gray-300 px-4 py-2">موجودی</th>
@@ -383,72 +257,30 @@ function Allproduct({ searchQuery = "" }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredData.map((post) => (
-                  <tr
-                    key={post.product_id}
-                    className="odd:bg-white even:bg-gray-100"
-                  >
-                    <td className="border border-gray-300 px-4 py-2">
-                      {post.name}
-                    </td>
-
-                    <td className="border  border-gray-300 ">
+                {products.map((post) => (
+                  <tr key={post.product_id} className="odd:bg-white even:bg-gray-100">
+                    <td className="border border-gray-300 px-4 py-2">{post.name}</td>
+                    <td className="border border-gray-300">
                       <div className="flex justify-center">
                         <img
-                          src={`http://localhost:5000/productimages/${post.image_address.replace(
-                            "uploads/",
-                            ""
-                          )}`}
+                          src={`http://localhost:5000/productimages/${post.image_address.replace("uploads/", "")}`}
                           alt={`Product ${post.product_id}`}
                           className="h-16 w-16 object-cover"
                         />
                       </div>
                     </td>
-                    <td className="border border-gray-300 px-4 py-2">
-                      {post.price_per_unit}تومان
-                    </td>
-                    <td className="border border-gray-300 px-4 py-2">
-                      {post.available_quantity}
-                    </td>
-                    <td className="flex  justify-around border border-gray-300 px-4 py-[25px]">
-                      <div className="relative group">
-                        <FaEdit
-                          className="text-lg text-green-400"
-                          size={30}
-                          onClick={() => edit(post.product_id)}
-                        />
-                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-zinc-600 text-white text-sm rounded-md px-2 py-1">
-                          ویرایش
-                        </span>
-                      </div>
-                      <div className="relative group">
-                        <IoEyeSharp
-                          className="text-lg text-blue-400"
-                          size={30}
-                          onClick={() => openModal(post.product_id)}
-                        />
-                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-zinc-600 text-white text-sm rounded-md px-2 py-1">
-                          جزئیات
-                        </span>
-                      </div>
-                      <div className="relative group ml-4">
-                        <RiDeleteBin5Fill
-                          className="text-lg text-red-400"
-                          size={30}
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                "از پاک کردن این محصول مطمئن هستید؟"
-                              )
-                            ) {
-                              deleteProduct(post.product_id);
-                            }
-                          }}
-                        />
-                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-zinc-600 text-white text-sm rounded-md px-2 py-1">
-                          حذف
-                        </span>
-                      </div>
+                    <td className="border border-gray-300 px-4 py-2">{post.price_per_unit} تومان</td>
+                    <td className="border border-gray-300 px-4 py-2">{post.available_quantity}</td>
+                    <td className="flex justify-around border border-gray-300 px-4 py-[25px]">
+                      <button onClick={() => setSelectedProductId(post.product_id)}>
+                        <FaEdit className="text-lg text-green-400" size={30} />
+                      </button>
+                      <button onClick={() => openModal(post.product_id)}>
+                        <IoEyeSharp className="text-lg text-blue-400" size={30} />
+                      </button>
+                      <button onClick={() => deleteProduct(post.product_id)}>
+                        <RiDeleteBin5Fill className="text-lg text-red-400" size={30} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -459,7 +291,6 @@ function Allproduct({ searchQuery = "" }) {
               className="py-8 flex justify-center"
             >
               <ul className="flex items-center -space-x-px h-8 text-sm">
-               
                 <li>
                   <button
                     onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
@@ -488,8 +319,6 @@ function Allproduct({ searchQuery = "" }) {
                     </svg>
                   </button>
                 </li>
-
-               
                 {Array.from({ length: totalPages }).map((_, index) => (
                   <li key={index}>
                     <button
@@ -504,8 +333,6 @@ function Allproduct({ searchQuery = "" }) {
                     </button>
                   </li>
                 ))}
-
-               
                 <li>
                   <button
                     onClick={() =>
@@ -541,66 +368,68 @@ function Allproduct({ searchQuery = "" }) {
           </div>
         </div>
       </div>
+
+      {/* Product Details Modal */}
       {isModalOpen && productDetails && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex justify-center items-center z-50">
           <div className="bg-white p-6 rounded-md shadow-lg w-1/2">
             <h4 className="p-3 font-medium">
               جزئیات محصول {productDetails.name}
             </h4>
-            <table class="w-full text-sm text-left rtl:text-right text-gray-500">
+            <table className="w-full text-sm text-left rtl:text-right text-gray-500">
               <tbody>
-                <tr class="border-b-8 border-white">
+                <tr className="border-b-8 border-white">
                   <th
                     scope="row"
-                    class="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
+                    className="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
                   >
                     دسته بندی:
                   </th>
-                  <td class="px-6 py-4 bg-zinc-200">
+                  <td className="px-6 py-4 bg-zinc-200">
                     {productDetails.category_name}
                   </td>
                 </tr>
-                <tr class="border-b-8 border-white">
+                <tr className="border-b-8 border-white">
                   <th
                     scope="row"
-                    class="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
+                    className="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
                   >
                     قیمت:
                   </th>
-                  <td class="px-6 py-4 bg-zinc-200">
+                  <td className="px-6 py-4 bg-zinc-200">
                     {productDetails.price_per_unit} تومان
                   </td>
                 </tr>
-                <tr class="border-b-8 border-white">
+                <tr className="border-b-8 border-white">
                   <th
                     scope="row"
-                    class="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
+                    className="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
                   >
                     برند:
                   </th>
-                  <td class="px-6 py-4 bg-zinc-200">
+                  <td className="px-6 py-4 bg-zinc-200">
                     {productDetails.manufacturer_name}
                   </td>
                 </tr>
-                <tr class="border-b-8 border-white">
+                <tr className="border-b-8 border-white">
                   <th
                     scope="row"
-                    class="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
+                    className="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
                   >
                     موجودی
                   </th>
-                  <td class="px-6 py-4 bg-zinc-200">
+                  <td className="px-6 py-4 bg-zinc-200">
                     {productDetails.available_quantity}
                   </td>
                 </tr>
-                <tr class="border-b-8 border-white">
+                <tr className="border-b-8 border-white">
                   <th
                     scope="row"
-                    class="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
+                    className="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
                   >
                     ارزش غذایی:
                   </th>
-                  <td class="px-6 py-4 bg-zinc-200">
+                  <td className="px-6 py-4 bg-zinc-200">
                     {productDetails.nutritional_information}
                   </td>
                 </tr>
@@ -617,9 +446,10 @@ function Allproduct({ searchQuery = "" }) {
         </div>
       )}
 
+      {/* Edit Product Modal */}
       {isEditModalOpen && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex justify-center items-center z-50">
-          <div className="rounded-md shadow-lg ">
+          <div className="rounded-md shadow-lg">
             <EditProduct editId={selectedProductId} onClose={closeEditModal} />
           </div>
         </div>

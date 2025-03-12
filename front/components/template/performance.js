@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import ProductsTable from "./ProductsTable";
-
 import Chart from "./chart";
-
 import { MdFastfood } from "react-icons/md";
 import { GiTeapotLeaves } from "react-icons/gi";
 import { GiClothes } from "react-icons/gi";
@@ -16,7 +14,7 @@ function Performance() {
     food: { count: 1, end: 100 },
     dishes: { count: 1, end: 250 },
     clothes: { count: 1, end: 300 },
-    totalProduct: { count: 1, end: 0 },
+    totalProduct: { count: 1, end: 0 }, // Initialize with 0
   });
 
   useEffect(() => {
@@ -24,10 +22,14 @@ function Performance() {
       try {
         const response = await fetch("http://localhost:5000/total_products");
         const data = await response.json();
+        console.log("Total products from backend:", data); // Log the response
+
+        // Extract the `total_products` property
+        const totalProducts = data.total_products || 0;
 
         setCounters((prev) => ({
           ...prev,
-          totalProduct: { count: 1, end: data || 0 },
+          totalProduct: { count: 1, end: totalProducts > 0 ? totalProducts : 1 }, // Use the extracted value
         }));
       } catch (error) {
         console.error("Error fetching total products:", error);
@@ -42,10 +44,13 @@ function Performance() {
       setCounters((prevCounters) => {
         let allCompleted = true;
         const newCounters = Object.keys(prevCounters).reduce((acc, key) => {
-          if (prevCounters[key].count < prevCounters[key].end) {
+          const { count, end } = prevCounters[key];
+
+          // Only increment if `end` is a valid number greater than 0
+          if (end > 0 && count < end) {
             acc[key] = {
               ...prevCounters[key],
-              count: prevCounters[key].count + 1,
+              count: count + 1,
             };
             allCompleted = false;
           } else {
@@ -113,10 +118,10 @@ function Performance() {
 
   return (
     <>
-      <div className=" flex flex-wrap mb-20 mt-32 justify-evenly">
+      <div className="flex flex-wrap mb-20 mt-32 justify-evenly">
         <div className="relative bg-white rounded-md w-96 h-28">
           <div className="absolute bg-[#af24f0] bottom-8 rounded-md right-3 flex justify-center items-center w-24 h-24">
-            <FaChartLine className="text-white " size={60} />
+            <FaChartLine className="text-white" size={60} />
           </div>
           <div className="absolute left-16 top-3 text-gray-500 font-normal">
             تعداد کل محصولات:
@@ -127,7 +132,7 @@ function Performance() {
         </div>
         <div className="relative bg-white rounded-md w-96 h-28">
           <div className="absolute bg-[#1ec0d5] bottom-8 rounded-md right-3 flex justify-center items-center w-24 h-24">
-            <MdFastfood className="text-white " size={60} />
+            <MdFastfood className="text-white" size={60} />
           </div>
           <div className="absolute left-16 top-3 text-gray-500 font-normal">
             خوراکی‌ها و مواد غذایی
@@ -137,7 +142,7 @@ function Performance() {
 
         <div className="relative bg-white rounded-md w-96 h-28">
           <div className="absolute bg-[#fea11f] bottom-8 rounded-md right-3 flex justify-center items-center w-24 h-24">
-            <GiTeapotLeaves className="text-white " size={60} />
+            <GiTeapotLeaves className="text-white" size={60} />
           </div>
           <div className="absolute left-16 top-3 text-gray-500 font-normal">
             لوازم خانگی و آشپزخانه
@@ -149,10 +154,9 @@ function Performance() {
 
         <div className="relative bg-white rounded-md w-96 h-28">
           <div className="absolute bg-[#5db461] bottom-8 rounded-md right-3 flex justify-center items-center w-24 h-24">
-            <GiClothes className="text-white " size={60} />
+            <GiClothes className="text-white" size={60} />
           </div>
           <div className="absolute left-[140px] top-3 text-gray-500 font-normal">
-            {" "}
             پوشاک و لباس
             <div className="font-bold p-4 text-2xl">
               {counters.clothes.count}
@@ -160,7 +164,7 @@ function Performance() {
           </div>
         </div>
       </div>
-      <div className=" mt-16 flex justify-center">
+      <div className="mt-16 flex justify-center">
         <div className="w-[90%] flex flex-row flex-wrap justify-start">
           <div className="flex flex-col bg-white border-2 border-zinc-300 rounded-md shadow-md mt-20">
             <p className="w-full border-b-2 h-14 p-3">کارکرد هفتگی</p>
@@ -177,7 +181,7 @@ function Performance() {
             <Chart {...yearlyData} />
           </div>
           <div className="flex flex-col mr-10 bg-white border-2 border-zinc-300 rounded-md shadow-md mt-20">
-            <ProductsTable/>
+            <ProductsTable />
           </div>
         </div>
       </div>
