@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 import mysql.connector
 from flask_cors import CORS
 from functools import wraps
@@ -16,6 +16,12 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(NEW_PRODUCT_IMG, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['NEW_PRODUCT_IMG'] = NEW_PRODUCT_IMG
+
+
+# Route for serving images from the 'uploads' folder
+@app.route("/uploads/<path:filename>")
+def uploaded_file(filename):
+    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
 # Custom error handler for database errors
 @app.errorhandler(mysql.connector.Error)
@@ -588,184 +594,107 @@ def get_available_quantity(connection, cursor, product_id):
 @with_db_connection
 def get_productspn(connection, cursor):
     try:
-        # Validate database connection
         if not connection.is_connected():
-            connection.reconnect(attempts=3, delay=2)
+            connection.reconnect()
+            cursor = connection.cursor()
+
+        # Retrieve query parameters safely
+        page = request.args.get('page', default=1, type=int)
+        limit = request.args.get('limit', default=20, type=int)
+        search = request.args.get('search', default='', type=str)
+        category_id = request.args.get('category_id', default=None, type=int)
+        min_price = request.args.get('minPrice', default=None, type=int)
+        max_price = request.args.get('maxPrice', default=None, type=int)
+        sort_field = request.args.get('sort', default='name', type=str)
+        sort_order = request.args.get('order', default='asc', type=str)
+
+        # Ensure sort field is valid
+        valid_sort_fields = ['name', 'price_per_unit', 'available_quantity']
+        if sort_field not in valid_sort_fields:
+            print(f"Invalid sort field: {sort_field}, defaulting to 'name'")
+            sort_field = 'name'
+
+        sort_direction = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
+        order_by_clause = f"ORDER BY product.{sort_field} {sort_direction}"
+
+        # Filters and query parameters
+        filters = []
+        query_params = []
+
+        if search:
+            filters.append("(product.name LIKE %s OR category.category_name LIKE %s)")
+            search_term = f"%{search}%"
+            query_params.extend([search_term, search_term])
+
+        if category_id is not None:
+            filters.append("product.category_id = %s")
+            query_params.append(category_id)
+
+        if min_price is not None and max_price is not None:
+            filters.append("product.price_per_unit BETWEEN %s AND %s")
+            query_params.extend([min_price, max_price])
+        elif min_price is not None:
+            filters.append("product.price_per_unit >= %s")
+            query_params.append(min_price)
+        elif max_price is not None:
+            filters.append("product.price_per_unit <= %s")
+            query_params.append(max_price)
+
+        filter_query = " WHERE " + " AND ".join(filters) if filters else ""
+
+        # Get total product count
+        count_query = f"""
+            SELECT COUNT(*)
+            FROM grocery_store.product
+            JOIN category ON product.category_id = category.category_id
+            {filter_query}
+        """
+        cursor.execute(count_query, tuple(query_params))
+        total_products = cursor.fetchone()[0]
+        total_pages = (total_products + limit - 1) // limit
+
+        # Get product list with pagination
+        offset = (page - 1) * limit
+        select_query = f"""
+    SELECT product.product_id, product.name, product.price_per_unit, product.available_quantity, 
+           product.image_address, product.category_id, category.category_name
+    FROM grocery_store.product
+    JOIN category ON product.category_id = category.category_id
+    {filter_query}
+    {order_by_clause}
+    LIMIT %s OFFSET %s
+"""
+
+        cursor.execute(select_query, tuple(query_params + [limit, offset]))
+
+        products = [
+            {
+                'product_id': row[0],
+                'name': row[1],
+                'price_per_unit': row[2],
+                'available_quantity': row[3],
+                'image_address': row[4],
+                'category_id': row[5],
+                'category_name': row[6]
+            }
+            for row in cursor.fetchall()
+        ]
+
+        return jsonify({
+            'page': page,
+            'limit': limit,
+            'total_products': total_products,
+            'total_pages': total_pages,
+            'products': products
+        })
+    
     except mysql.connector.Error as err:
+        print(f"Database error: {err}")  # Debugging
         return jsonify({'error': str(err)}), 500
-
-    # Retrieve query parameters
-    page = request.args.get('page', default=1, type=int)
-    limit = request.args.get('limit', default=20, type=int)
-    search = request.args.get('search', default='', type=str)
-    category_id = request.args.get('category_id', type=int)
-    min_price = request.args.get('minPrice', default=0, type=int)
-    max_price = request.args.get('maxPrice', default=0, type=int)
-    sort_field = request.args.get('sort', default='name', type=str)
-    sort_order = request.args.get('order', default='asc', type=str)
-
-    # Filters and query parameters
-    filters = []
-    query_params = []
-
-    if search:
-        filters.append("(product.name LIKE %s OR category.category_name LIKE %s)")
-        search_term = f"%{search}%"
-        query_params.extend([search_term, search_term])
+    except Exception as e:
+        print(f"Unexpected error: {e}")  # Debugging
+        return jsonify({'error': str(e)}), 500
     
-    if category_id is not None:
-        filters.append("product.category_id = %s")
-        query_params.append(category_id)
-    
-    if min_price > 0 or max_price > 0:
-        filters.append("product.price_per_unit BETWEEN %s AND %s")
-        query_params.extend([min_price, max_price])
-
-    filter_query = " WHERE " + " AND ".join(filters) if filters else ""
-
-    # Sorting
-    valid_sort_fields = ['name', 'price_per_unit', 'available_quantity']
-    if sort_field not in valid_sort_fields:
-        sort_field = 'name'  # Fallback to a default sort field
-    sort_direction = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
-    order_by_clause = f"ORDER BY product.{sort_field} {sort_direction}"
-
-    # Total product count query
-    count_query = f"""
-        SELECT COUNT(*)
-        FROM grocery_store.product
-        JOIN category ON product.category_id = category.category_id
-        {filter_query}
-    """
-    cursor.execute(count_query, tuple(query_params))
-    total_products = cursor.fetchone()[0]
-    total_pages = (total_products + limit - 1) // limit
-
-    # Product list query with pagination
-    select_query = f"""
-        SELECT product_id, name, price_per_unit, available_quantity, image_address, category_id,
-               category_name
-        FROM grocery_store.product
-        JOIN category ON product.category_id = category.category_id
-        {filter_query}
-        {order_by_clause}
-        LIMIT %s OFFSET %s
-    """
-    offset = (page - 1) * limit
-    cursor.execute(select_query, tuple(query_params + [limit, offset]))
-
-    products = [
-        {
-            'product_id': row[0],
-            'name': row[1],
-            'price_per_unit': row[2],
-            'available_quantity': row[3],
-            'image_address': row[4],
-            'category_id': row[5],
-            'category_name': row[6]
-        }
-        for row in cursor.fetchall()
-    ]
-
-    return jsonify({
-        'page': page,
-        'limit': limit,
-        'total_products': total_products,
-        'total_pages': total_pages,
-        'products': products
-    })
-
-
-
-
-
-
-
-# T
-# returning all products in db
-@app.route('/getProducts', methods=['GET'])
-@with_db_connection
-def get_products(connection, cursor):
-    query = """SELECT product.product_id, product.name, product.uom_id, product.price_per_unit,
-                    product.available_quantity, product.image_address, product.category_id,
-                    uom.uom_name, category.category_name
-                FROM grocery_store.product
-                JOIN uom ON product.uom_id = uom.uom_id
-                JOIN category ON product.category_id = category.category_id"""
-    
-    cursor.execute(query)
-    products = []
-    for row in cursor.fetchall():
-        product = {
-            'product_id': row[0],
-            'name': row[1],
-            'uom_id': row[2],
-            'price_per_unit': row[3],
-            'available_quantity': row[4],
-            'image_address': row[5],
-            'category_id': row[6],
-            'uom_name': row[7],
-            'category_name': row[8]
-        }
-        products.append(product)
-    return jsonify(products)
-
-@app.route('/productimages/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-
-# T
-# returning all entiteis of a specific product
-@app.route('/getProduct/<int:product_id>', methods=['GET'])
-@with_db_connection
-def get_one_product(connection, cursor, product_id):
-    query = """SELECT product.product_id, product.name, product.uom_id, product.price_per_unit,
-                    product.available_quantity, product.manufacturer_name, product.weight, 
-                    product.purchase_price, product.discount_percentage, product.voluminosity,
-                    product.combinations, product.nutritional_information, product.expiration_date,
-                    product.storage_conditions, product.number_sold, product.date_added_to_stock,
-                    product.total_profit_on_sales, product.error_rate_in_weight, product.image_address,
-                    product.category_id, uom.uom_name, category.category_name
-                FROM grocery_store.product
-                JOIN uom ON product.uom_id = uom.uom_id
-                JOIN category ON product.category_id = category.category_id
-                WHERE product.product_id = %s"""
-    
-    cursor.execute(query, (product_id,))
-    product = cursor.fetchone()
-    
-    if product is None:
-        return jsonify({"error": "Product not found"}), 404
-
-    response = {
-        'product_id': product[0],
-        'name': product[1],
-        'uom_id': product[2],
-        'price_per_unit': product[3],
-        'available_quantity': product[4],
-        'manufacturer_name': product[5],
-        'weight': product[6],
-        'purchase_price': product[7],
-        'discount_percentage': product[8],
-        'voluminosity': product[9],
-        'combinations': product[10],
-        'nutritional_information': product[11],
-        'expiration_date': product[12],
-        'storage_conditions': product[13],
-        'number_sold': product[14],
-        'date_added_to_stock': product[15],
-        'total_profit_on_sales': product[16],
-        'error_rate_in_weight': product[17],
-        'image_address': product[18],
-        'category_id': product[19],
-        'uom_name': product[20],
-        'category_name': product[21]
-    }
-    return jsonify(response)
-
-
-
 
 # T
 # update all attribute of a product except id
