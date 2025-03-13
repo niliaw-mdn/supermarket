@@ -3,48 +3,26 @@ import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 
 function EditProduct({ editId, onClose }) {
-  const [productData, setProductData] = useState({
-    name: "",
-    price_per_unit: "",
-    available_quantity: "",
-    uom_id: "",
-    manufacturer_name: "",
-    weight: "",
-    purchase_price: "",
-    discount_percentage: "",
-    voluminosity: "",
-    combinations: "",
-    nutritional_information: "",
-    expiration_date: "",
-    storage_conditions: "",
-    number_sold: "",
-    date_added_to_stock: "",
-    total_profit_on_sales: "",
-    error_rate_in_weight: "",
-    category_id: "",
-    image_address: "",
-    image: null, // Add image state for file input
-  });
+  const [productData, setProductData] = useState({});
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [uomOptions, setUomOptions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [originalProductData, setOriginalProductData] = useState({});
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch the product data for editing
         if (editId) {
           const productRes = await axios.get(
             `http://localhost:5000/getProduct/${editId}`
           );
           setProductData(productRes.data);
+          setOriginalProductData(productRes.data); 
         }
 
-        // Fetch UOM options
         const uomRes = await axios.get("http://localhost:5000/getUOM");
         setUomOptions(uomRes.data);
 
-        // Fetch category options
         const categoryRes = await axios.get(
           "http://localhost:5000/getcategory"
         );
@@ -63,33 +41,64 @@ function EditProduct({ editId, onClose }) {
   const handleUpdate = async (e) => {
     e.preventDefault();
 
-    if (!productData.name || productData.name.trim() === "") {
-      toast.error("نام محصول الزامی است.");
-      return;
+    const formData = new FormData();
+
+
+    if (productData.name) formData.append("name", productData.name);
+    if (productData.price_per_unit)
+      formData.append("price_per_unit", parseFloat(productData.price_per_unit));
+    if (productData.available_quantity)
+      formData.append(
+        "available_quantity",
+        parseInt(productData.available_quantity)
+      );
+    if (productData.uom_id)
+      formData.append("uom_id", parseInt(productData.uom_id));
+    if (productData.manufacturer_name)
+      formData.append("manufacturer_name", productData.manufacturer_name);
+    if (productData.weight)
+      formData.append("weight", parseFloat(productData.weight));
+    if (productData.purchase_price)
+      formData.append("purchase_price", parseFloat(productData.purchase_price));
+    if (productData.discount_percentage)
+      formData.append(
+        "discount_percentage",
+        parseInt(productData.discount_percentage)
+      );
+    if (productData.voluminosity)
+      formData.append("voluminosity", parseFloat(productData.voluminosity));
+    if (productData.category_id)
+      formData.append("category_id", parseInt(productData.category_id));
+
+  
+    if (
+      productData.expiration_date &&
+      productData.expiration_date !== originalProductData.expiration_date
+    ) {
+      formData.append("expiration_date", productData.expiration_date);
     }
 
-    const formData = new FormData();
-    Object.keys(productData).forEach((key) => {
-      if (key !== "image" && productData[key]) {  // Exclude 'image' field from being appended as a string
-        formData.append(key, productData[key]);
-      }
-    });
-
-    // Include image if it exists
     if (productData.image) {
-      formData.append("file", productData.image);
+      formData.append("image", productData.image);
     }
 
     try {
-      await axios.put(
+      const response = await axios.put(
         `http://localhost:5000/updateProduct/${editId}`,
         formData,
         {
           headers: { "Content-Type": "multipart/form-data" },
         }
       );
+
       toast.success("محصول با موفقیت بروزرسانی شد.");
       onClose();
+
+      
+      setProductData((prev) => ({
+        ...prev,
+        image_address: response.data.image_address,
+      }));
     } catch (err) {
       console.error("Error updating product:", err);
       toast.error("بروزرسانی محصول به مشکل برخورد، دوباره تلاش کنید.");
@@ -97,24 +106,6 @@ function EditProduct({ editId, onClose }) {
   };
 
   if (loading) return <div>Loading...</div>;
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setProductData((prevData) => ({
-      ...prevData,
-      [name]: value,
-    }));
-  };
-
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setProductData((prevData) => ({
-        ...prevData,
-        image: file,
-      }));
-    }
-  };
 
   return (
     <>
@@ -132,7 +123,7 @@ function EditProduct({ editId, onClose }) {
           <form onSubmit={handleUpdate} className="p-4 flex flex-col h-full">
             <div className="grid grid-cols-2 gap-x-8">
               <div>
-                {[  
+                {[
                   { label: "نام محصول", key: "name", type: "text" },
                   {
                     label: "واحد اندازه گیری",
@@ -148,9 +139,13 @@ function EditProduct({ editId, onClose }) {
                     {field.type === "select" ? (
                       <select
                         className="border-2 border-slate-300 rounded-md m-3 p-2"
-                        name={field.key}
                         value={productData[field.key] || ""}
-                        onChange={handleInputChange}
+                        onChange={(e) =>
+                          setProductData({
+                            ...productData,
+                            [field.key]: e.target.value,
+                          })
+                        }
                         required
                       >
                         <option value="">انتخاب {field.label}</option>
@@ -167,9 +162,13 @@ function EditProduct({ editId, onClose }) {
                       <input
                         className="border-2 border-slate-300 rounded-md m-3 p-2"
                         type={field.type}
-                        name={field.key}
                         value={productData[field.key] || ""}
-                        onChange={handleInputChange}
+                        onChange={(e) =>
+                          setProductData({
+                            ...productData,
+                            [field.key]: e.target.value,
+                          })
+                        }
                         required
                       />
                     )}
@@ -178,7 +177,7 @@ function EditProduct({ editId, onClose }) {
               </div>
 
               <div>
-                {[  
+                {[
                   { label: "وزن", key: "weight", type: "number" },
                   {
                     label: "دسته بندی",
@@ -198,9 +197,13 @@ function EditProduct({ editId, onClose }) {
                     {field.type === "select" ? (
                       <select
                         className="border-2 border-slate-300 rounded-md m-3 p-2"
-                        name={field.key}
                         value={productData[field.key] || ""}
-                        onChange={handleInputChange}
+                        onChange={(e) =>
+                          setProductData({
+                            ...productData,
+                            [field.key]: e.target.value,
+                          })
+                        }
                         required
                       >
                         <option value="">انتخاب {field.label}</option>
@@ -217,25 +220,47 @@ function EditProduct({ editId, onClose }) {
                       <input
                         className="border-2 border-slate-300 rounded-md m-3 p-2"
                         type={field.type}
-                        name={field.key}
                         value={productData[field.key] || ""}
-                        onChange={handleInputChange}
+                        onChange={(e) =>
+                          setProductData({
+                            ...productData,
+                            [field.key]: e.target.value,
+                          })
+                        }
                         required
                       />
                     )}
                   </div>
                 ))}
               </div>
-            </div>
 
-            {/* Image upload field */}
-            <div className="flex flex-col pb-5">
-              <label>تصویر محصول:</label>
-              <input
-                type="file"
-                className="border-2 border-slate-300 rounded-md m-3 p-2"
-                onChange={handleImageChange}
-              />
+              {/* Image Upload */}
+              <div className="flex flex-col pb-5">
+                <label>تصویر محصول:</label>
+                <input
+                  className="border-2 border-slate-300 rounded-md m-3 p-2"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) =>
+                    setProductData({ ...productData, image: e.target.files[0] })
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col pb-5">
+                <label>تاریخ انقضا:</label>
+                <input
+                  className="border-2 border-slate-300 rounded-md m-3 p-2"
+                  type="date"
+                  value={productData.expiration_date || ""}
+                  onChange={(e) =>
+                    setProductData({
+                      ...productData,
+                      expiration_date: e.target.value,
+                    })
+                  }
+                />
+              </div>
             </div>
 
             <div className="flex justify-center p-4 mt-auto bg-white">

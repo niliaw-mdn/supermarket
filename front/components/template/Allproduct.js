@@ -20,6 +20,7 @@ function Allproduct({ searchQuery = "" }) {
   });
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
+
   const [page, setPage] = useState(1);
   const [limit] = useState(15);
   const [totalPages, setTotalPages] = useState(1);
@@ -29,7 +30,6 @@ function Allproduct({ searchQuery = "" }) {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState(null);
 
-  // Fetch initial data (minPrice, maxPrice, categories)
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
@@ -56,43 +56,56 @@ function Allproduct({ searchQuery = "" }) {
     const fetchProducts = async () => {
       setLoading(true);
       try {
-        const { data } = await axios.get(
-          "http://localhost:5000/getProductspn",
-          {
-            params: {
-              page,
-              limit,
-              minPrice: filters.minPrice ?? undefined, // Default to undefined if not set
-              maxPrice: filters.maxPrice ?? undefined,
-              category_id: filters.selectedCategory ?? undefined,
-              search: searchQuery ?? undefined,
-              sort: filters.sortField ?? "name",
-              order: filters.sortOrder ?? "asc",
-            },
-          }
-        );
+        const params = {
+          page,
+          limit,
+          minPrice: filters.minPrice ?? undefined,
+          maxPrice: filters.maxPrice ?? undefined,
+          category_id: filters.selectedCategory ?? undefined, // Use category ID
+          search: searchQuery ?? undefined,
+          sort: filters.sortField ?? "name",
+          order: filters.sortOrder ?? "asc",
+        };
+    
+        console.log("Sending filters to backend:", params);
+    
+        const { data } = await axios.get("http://localhost:5000/getProductspn", {
+          params,
+        });
+    
         setProducts(data.products);
         setTotalPages(data.total_pages);
       } catch (error) {
-        console.error(
-          "Error fetching products:",
-          error?.response?.data || error
-        );
+        console.error("Error fetching products:", error?.response?.data || error);
         toast.error("Failed to load products.");
       } finally {
         setLoading(false);
       }
     };
+
     fetchProducts();
   }, [page, filters, searchQuery]);
 
-  // Handle filter changes
   const handleFilterChange = (key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
-    setPage(1); // Reset to first page when filters change
+    setPage(1);
   };
 
-  // Delete product
+  const handleCategoryChange = (categoryId) => {
+    setFilters((prev) => ({ ...prev, selectedCategory: categoryId }));
+    setPage(1); 
+  };
+
+  const toggleBrandSelection = (brand) => {
+    setFilters((prev) => ({
+      ...prev,
+      selectedBrands: prev.selectedBrands.includes(brand)
+        ? prev.selectedBrands.filter((b) => b !== brand)
+        : [...prev.selectedBrands, brand],
+    }));
+    setPage(1);
+  };
+
   const deleteProduct = async (productId) => {
     if (!window.confirm("Are you sure you want to delete this product?"))
       return;
@@ -111,7 +124,6 @@ function Allproduct({ searchQuery = "" }) {
     }
   };
 
-  // Open product details modal
   const openModal = async (productId) => {
     try {
       const response = await axios.get(
@@ -125,7 +137,6 @@ function Allproduct({ searchQuery = "" }) {
     }
   };
 
-  // Close modals
   const closeModal = () => {
     setIsModalOpen(false);
     setProductDetails(null);
@@ -175,11 +186,8 @@ function Allproduct({ searchQuery = "" }) {
                       <li key={category.category_id}>
                         <button
                           onClick={() =>
-                            handleFilterChange(
-                              "selectedCategory",
-                              category.category_name
-                            )
-                          }
+                            handleCategoryChange(category.category_id)
+                          } // Pass category ID
                           className="block px-4 py-2 hover:bg-gray-100 w-full"
                         >
                           {category.category_name}
@@ -352,25 +360,41 @@ function Allproduct({ searchQuery = "" }) {
                     </td>
                     <td className="flex justify-around border border-gray-300 px-4 py-[25px]">
                       <button
+                        className="relative group ml-4"
                         onClick={() => {
-                          setSelectedProductId(post.product_id); // Set the product ID
-                          setIsEditModalOpen(true); // Open the edit modal
+                          setSelectedProductId(post.product_id);
+                          setIsEditModalOpen(true);
                         }}
                       >
                         <FaEdit className="text-lg text-green-400" size={30} />
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-zinc-600 text-white text-sm rounded-md px-2 py-1">
+                          ویرایش
+                        </span>
                       </button>
 
-                      <button onClick={() => openModal(post.product_id)}>
+                      <button
+                        className="relative group ml-4"
+                        onClick={() => openModal(post.product_id)}
+                      >
                         <IoEyeSharp
                           className="text-lg text-blue-400"
                           size={30}
                         />
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-zinc-600 text-white text-sm rounded-md px-2 py-1">
+                          جزئیات
+                        </span>
                       </button>
-                      <button onClick={() => deleteProduct(post.product_id)}>
+                      <button
+                        className="relative group ml-4"
+                        onClick={() => deleteProduct(post.product_id)}
+                      >
                         <RiDeleteBin5Fill
                           className="text-lg text-red-400"
                           size={30}
                         />
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-zinc-600 text-white text-sm rounded-md px-2 py-1">
+                          حذف
+                        </span>
                       </button>
                     </td>
                   </tr>
@@ -522,6 +546,17 @@ function Allproduct({ searchQuery = "" }) {
                   </th>
                   <td className="px-6 py-4 bg-zinc-200">
                     {productDetails.nutritional_information}
+                  </td>
+                </tr>
+                <tr className="border-b-8 border-white">
+                  <th
+                    scope="row"
+                    className="px-6 py-4 font-medium text-white whitespace-nowrap bg-zinc-500"
+                  >
+                    تاریخ انقضا:
+                  </th>
+                  <td className="px-6 py-4 bg-zinc-200">
+                    {productDetails.expiration_date}
                   </td>
                 </tr>
               </tbody>

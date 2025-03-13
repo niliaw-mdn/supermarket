@@ -589,7 +589,6 @@ def get_available_quantity(connection, cursor, product_id):
 
 
 # if its worked delete this line and replace it by T
-# returning all products in page nation from db 
 @app.route('/getProductspn', methods=['GET'])
 @with_db_connection
 def get_productspn(connection, cursor):
@@ -607,6 +606,18 @@ def get_productspn(connection, cursor):
         max_price = request.args.get('maxPrice', default=None, type=int)
         sort_field = request.args.get('sort', default='name', type=str)
         sort_order = request.args.get('order', default='asc', type=str)
+
+        # Log received parameters
+        print("Received parameters:", {
+            'page': page,
+            'limit': limit,
+            'search': search,
+            'category_id': category_id,
+            'min_price': min_price,
+            'max_price': max_price,
+            'sort_field': sort_field,
+            'sort_order': sort_order,
+        })
 
         # Ensure sort field is valid
         valid_sort_fields = ['name', 'price_per_unit', 'available_quantity']
@@ -656,15 +667,14 @@ def get_productspn(connection, cursor):
         # Get product list with pagination
         offset = (page - 1) * limit
         select_query = f"""
-    SELECT product.product_id, product.name, product.price_per_unit, product.available_quantity, 
-           product.image_address, product.category_id, category.category_name
-    FROM grocery_store.product
-    JOIN category ON product.category_id = category.category_id
-    {filter_query}
-    {order_by_clause}
-    LIMIT %s OFFSET %s
-"""
-
+            SELECT product.product_id, product.name, product.price_per_unit, product.available_quantity, 
+                   product.image_address, product.category_id, category.category_name
+            FROM grocery_store.product
+            JOIN category ON product.category_id = category.category_id
+            {filter_query}
+            {order_by_clause}
+            LIMIT %s OFFSET %s
+        """
         cursor.execute(select_query, tuple(query_params + [limit, offset]))
 
         products = [
@@ -694,7 +704,55 @@ def get_productspn(connection, cursor):
     except Exception as e:
         print(f"Unexpected error: {e}")  # Debugging
         return jsonify({'error': str(e)}), 500
-    
+
+
+@app.route('/getProduct/<int:product_id>', methods=['GET'])
+@with_db_connection
+def get_one_product(connection, cursor, product_id):
+    query = """SELECT product.product_id, product.name, product.uom_id, product.price_per_unit, 
+    product.available_quantity, product.manufacturer_name, product.weight, product.purchase_price, 
+    product.discount_percentage, product.voluminosity, product.combinations, 
+    product.nutritional_information, product.expiration_date, product.storage_conditions, 
+    product.number_sold, product.date_added_to_stock, product.total_profit_on_sales, 
+    product.error_rate_in_weight, product.image_address, product.category_id, 
+    uom.uom_name, category.category_name 
+    FROM grocery_store.product 
+    JOIN uom ON product.uom_id = uom.uom_id 
+    JOIN category ON product.category_id = category.category_id 
+    WHERE product.product_id = %s"""
+
+    cursor.execute(query, (product_id,))
+    product = cursor.fetchone()
+
+    if product is None:
+        return jsonify({"error": "Product not found"}), 404
+
+    response = {
+        'product_id': product[0],
+        'name': product[1],
+        'uom_id': product[2],
+        'price_per_unit': product[3],
+        'available_quantity': product[4],
+        'manufacturer_name': product[5],
+        'weight': product[6],
+        'purchase_price': product[7],
+        'discount_percentage': product[8],
+        'voluminosity': product[9],
+        'combinations': product[10],
+        'nutritional_information': product[11],
+        'expiration_date': product[12],
+        'storage_conditions': product[13],
+        'number_sold': product[14],
+        'date_added_to_stock': product[15],
+        'total_profit_on_sales': product[16],
+        'error_rate_in_weight': product[17],
+        'image_address': product[18],
+        'category_id': product[19],
+        'uom_name': product[20],
+        'category_name': product[21]
+    }
+
+    return jsonify(response)
 
 # T
 # update all attribute of a product except id
@@ -702,52 +760,51 @@ def get_productspn(connection, cursor):
 @with_db_connection
 def update_product(connection, cursor, product_id):
     try:
-        # First, retrieve the current image path from the database
-        cursor.execute("SELECT image_address FROM product WHERE product_id = %s", (product_id,))
-        current_image_path = cursor.fetchone()
         
-        if not current_image_path:
+        cursor.execute("SELECT * FROM product WHERE product_id = %s", (product_id,))
+        current_product = cursor.fetchone()
+        
+        if not current_product:
             return jsonify({'error': 'Product not found'}), 404
-        
-        current_image_path = current_image_path[0]
 
-        # Check if a new image is uploaded
-        if 'file' in request.files:
-            file = request.files['file']
+        
+        file_path = current_product[18]  
+        if 'image' in request.files:
+            file = request.files['image']
             if file.filename:
                 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
                 file.save(file_path)
-                file_path = file_path
-            else:
-                file_path = current_image_path
-        else:
-            file_path = current_image_path
+                file_path = file.filename  # Save only the filename
 
-        # Extract product details from the form
+       
+        expiration_date = request.form.get('expiration_date')
+        if expiration_date in [None, ""]:  
+            expiration_date = current_product[12]  
+
         product_data = {
-            'name': request.form.get('name'),
-            'uom_id': request.form.get('uom_id'),
-            'price_per_unit': request.form.get('price_per_unit'),
-            'available_quantity': request.form.get('available_quantity'),
-            'manufacturer_name': request.form.get('manufacturer_name'),
-            'weight': request.form.get('weight'),
-            'purchase_price': request.form.get('purchase_price'),
-            'discount_percentage': request.form.get('discount_percentage'),
-            'voluminosity': request.form.get('voluminosity'),
-            'combinations': request.form.get('combinations'),
-            'nutritional_information': request.form.get('nutritional_information'),
-            'expiration_date': request.form.get('expiration_date'),
-            'storage_conditions': request.form.get('storage_conditions'),
-            'number_sold': request.form.get('number_sold'),
-            'date_added_to_stock': request.form.get('date_added_to_stock'),
-            'total_profit_on_sales': request.form.get('total_profit_on_sales'),
-            'error_rate_in_weight': request.form.get('error_rate_in_weight'),
-            'category_id': request.form.get('category_id'),
+            'name': request.form.get('name', current_product[1]),
+            'uom_id': request.form.get('uom_id', current_product[2]),
+            'price_per_unit': request.form.get('price_per_unit', current_product[3]),
+            'available_quantity': request.form.get('available_quantity', current_product[4]),
+            'manufacturer_name': request.form.get('manufacturer_name', current_product[5]),
+            'weight': request.form.get('weight', current_product[6]),
+            'purchase_price': request.form.get('purchase_price', current_product[7]),
+            'discount_percentage': request.form.get('discount_percentage', current_product[8]),
+            'voluminosity': request.form.get('voluminosity', current_product[9]),
+            'combinations': request.form.get('combinations', current_product[10]),
+            'nutritional_information': request.form.get('nutritional_information', current_product[11]),
+            'expiration_date': expiration_date,  
+            'storage_conditions': request.form.get('storage_conditions', current_product[13]),
+            'number_sold': request.form.get('number_sold', current_product[14]),
+            'date_added_to_stock': request.form.get('date_added_to_stock', current_product[15]),
+            'total_profit_on_sales': request.form.get('total_profit_on_sales', current_product[16]),
+            'error_rate_in_weight': request.form.get('error_rate_in_weight', current_product[17]),
+            'category_id': request.form.get('category_id', current_product[19]),
             'image_address': file_path
         }
 
-        # Prepare the SQL UPDATE query
+        
         sql = """UPDATE product SET 
                     name = %s, uom_id = %s, price_per_unit = %s, available_quantity = %s,
                     manufacturer_name = %s, weight = %s, purchase_price = %s, discount_percentage = %s,
@@ -771,7 +828,7 @@ def update_product(connection, cursor, product_id):
 
         cursor.execute(sql, values)
         connection.commit()
-        return jsonify({'message': 'Product updated successfully'})
+        return jsonify({'message': 'Product updated successfully', 'image_address': file_path})
 
     except mysql.connector.Error as err:
         connection.rollback()
@@ -779,6 +836,7 @@ def update_product(connection, cursor, product_id):
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 
 # T
