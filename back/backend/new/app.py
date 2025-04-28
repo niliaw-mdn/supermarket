@@ -10,7 +10,6 @@ yolo = YOLO('best.pt')
 # استفاده از session_state برای ذخیره اطلاعات
 if "detected_objects" not in st.session_state:
     st.session_state.detected_objects = {}
-
 if "active_objects" not in st.session_state:
     st.session_state.active_objects = defaultdict(int)
 
@@ -84,7 +83,7 @@ def video_processing():
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    cap.set(cv2.CAP_PROP_FPS, 30)
+    cap.set(cv2.CAP_PROP_FPS, 60)
 
     if not cap.isOpened():
         st.error("❌ وب‌کم در دسترس نیست!")

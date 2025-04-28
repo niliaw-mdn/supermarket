@@ -1,5 +1,8 @@
 {
     "python.analysis.extraPaths": [
         "./back/backend"
+    ],
+    "cSpell.words": [
+        "jsonify"
     ]
 }

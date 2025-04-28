@@ -4,7 +4,8 @@ from flask_cors import CORS
 from functools import wraps
 import os
 from db_connection import get_db_connection, close_connection
-
+import subprocess
+import time
 app = Flask(__name__)
 CORS(app)
 
@@ -230,9 +231,7 @@ def expiring_productspn(connection, cursor):
 
         # دریافت لیست محصولات در حال انقضاء
         select_query = """
-            SELECT product_id, name, price_per_unit, available_quantity, image_address, 
-                   expiration_date, category_id
-            FROM product
+            SELECT product_id, name, price_per_unit, available_quantity, image_address, expiration_date, category_id FROM product
             WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
             ORDER BY expiration_date ASC
             LIMIT %s OFFSET %s
@@ -668,7 +667,7 @@ def get_productspn(connection, cursor):
         offset = (page - 1) * limit
         select_query = f"""
             SELECT product.product_id, product.name, product.price_per_unit, product.available_quantity, 
-                   product.image_address, product.category_id, category.category_name
+            product.image_address, product.category_id, category.category_name
             FROM grocery_store.product
             JOIN category ON product.category_id = category.category_id
             {filter_query}
@@ -777,7 +776,7 @@ def update_product(connection, cursor, product_id):
                 file.save(file_path)
                 file_path = file.filename  # Save only the filename
 
-       
+        
         expiration_date = request.form.get('expiration_date')
         if expiration_date in [None, ""]:  
             expiration_date = current_product[12]  
@@ -997,6 +996,31 @@ def get_category(connection, cursor):
     
     except mysql.connector.Error as err:
         return jsonify({'error': str(err)}), 500
+
+
+
+
+
+
+
+
+# مسیر اجرای Streamlit
+STREAMLIT_COMMAND_1 = ["streamlit", "run", "st1.py"]
+
+@app.route('/start_streamlit_1', methods=['GET'])
+def start_streamlit_1():
+    try:
+        # بررسی اینکه آیا Streamlit در حال اجرا است
+        process = subprocess.Popen(STREAMLIT_COMMAND_1, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        time.sleep(3)  # زمان کوتاهی برای راه‌اندازی
+
+        return jsonify({"message": "✅ اپلیکیشن Streamlit راه‌اندازی شد!"}), 200
+    except Exception as e:
+        return jsonify({"error": f"مشکل در اجرای Streamlit: {str(e)}"}), 500
+
+
+
+
 
 
 
