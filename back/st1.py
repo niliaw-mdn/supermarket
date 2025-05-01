@@ -4,82 +4,139 @@ from ultralytics import YOLO
 from collections import defaultdict
 import json
 
-# بارگذاری مدل YOLO
-yolo = YOLO('best.pt')
+# Set the page config as the first Streamlit command
+st.set_page_config(page_title="شناسایی اشیاء", layout="wide")
 
-# استفاده از session_state برای ذخیره اطلاعات
-if "detected_objects" not in st.session_state:
-    st.session_state.detected_objects = {}
-if "active_objects" not in st.session_state:
-    st.session_state.active_objects = defaultdict(int)
-
-if "stop_processing" not in st.session_state:
-    st.session_state.stop_processing = False
-
-if "purchase_submitted" not in st.session_state:
-    st.session_state.purchase_submitted = False
-
-# تنظیمات مربوط به زمان ماندگاری اشیاء
-FRAME_LIFETIME = 10
-
-# CSS سفارشی برای زیباتر کردن ظاهر برنامه
-# CSS سفارشی برای زیباتر کردن ظاهر برنامه و افزایش اندازه متن‌ها
+# Custom CSS for styling
 def add_custom_css():
     st.markdown(
         """
         <style>
-        body {
+        .appview-container .main {
+            background-color: #e2e8f0 !important;
             font-family: 'IRANSans', sans-serif;
-            background-color: #e8f5e9; /* سفید مایل به سبز */
         }
-        h1, h2, h3, h4, h5, h6 {
-            font-family: 'IRANSans', sans-serif;
-            font-size: 26px; /* بزرگ‌تر شدن تیترها */
-            color: #2e7d32; /* سبز پررنگ‌تر */
+
+        .st-emotion-cache-z5fcl4 {
+            padding: 2rem;
         }
-        .stTextArea>div>textarea {
-            font-size: 18px; /* بزرگ‌تر شدن متن ورودی‌ها */
+
+           .stHorizontalBlock.st-emotion-cache-ocqkz7.eiemyj0 {
+           margin-top: 30px
+            display: flex;
+            justify-content: center;  /* Horizontally center the content */
+            align-items: center;      /* Vertically center the content */
+            height: 100%;             /* Take full height of the container */
         }
-        .stButton>button {
-            background-color: #4CAF50;
-            color: white;
-            border-radius: 8px;
-            font-size: 20px; /* بزرگ‌تر شدن دکمه‌ها */
-            padding: 15px 30px; /* بهبود اندازه دکمه */
-            margin: 15px;
+
+        /* Center buttons specifically */
+        .stHorizontalBlock.st-emotion-cache-ocqkz7.eiemyj0 button {
+            margin: 0 auto;  /* Automatically adjusts the margin to center the buttons */
+            display: block;  /* Make the button block level to respect margin auto */
         }
-        .stButton>button:hover {
-            background-color: #45a049;
+
+        
+        /* Header section */
+        .stAppHeader {
+            background-color: #636bbf !important;
+            color: white !important;
         }
-        .reset-button>button, .submit-button>button {
-            background-color: #FF5733;
-            color: white;
-            border-radius: 8px;
-            font-size: 20px; /* بزرگ‌تر شدن دکمه‌های مخصوص */
-            padding: 15px 30px;
+
+        /* The 'Deploy' button and related actions */
+        .stAppDeployButton button {
+            background-color: transparent !important;
+            color: white !important;
         }
-        .reset-button>button:hover, .submit-button>button:hover {
-            background-color: #E63939;
+
+        .stAppDeployButton button:hover {
+             background-color: transparent !important;
+             transform: scale(1.1); /* Increase the size of the text */
+            font-size: 20px;
         }
-        div.stMarkdown > div {
-            font-size: 20px; /* بزرگ‌تر شدن متن‌های Markdown */
-            line-height: 1.8; /* بهبود فاصله بین خطوط */
+
+        
+
+        /* Menu button */
+        .stMainMenu button {
+            background-color: transparent !important;
+            color: white !important;
         }
-        .stDataFrame {
-            font-size: 16px; /* بزرگ‌تر شدن جدول‌ها */
+
+        
+
+
+        /* Headings */
+        h1, h2, h3 {
+            color: gray !important;
+            text-align: center;
+        }
+
+        /* Buttons */
+        button {
+            background-color: #0f20db !important;
+            color: white !important;
+            border-radius: 8px !important;
+            font-size: 18px !important;
+            padding: 10px 20px !important;
+        }
+
+        button:hover {
+            background-color: #888ecf !important;
+            border:none;
+0        }
+
+        /* Text area */
+        textarea {
+            font-size: 16px !important;
+        }
+
+        /* Markdown text */
+        .stMarkdown {
+            font-size: 18px !important;
+            line-height: 1.8;
         }
         </style>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
+def set_background_color():
+    st.markdown(
+        """
+        <style>
+        /* Set background color for the whole page */
+        .stApp {
+            background-color: #e2e8f0 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
-# مدیریت پردازش ویدیو
+set_background_color()
+add_custom_css()  
+
+# YOLO model initialization
+yolo = YOLO('best.pt')
+
+# Session state initialization
+if "detected_objects" not in st.session_state:
+    st.session_state.detected_objects = {}
+if "active_objects" not in st.session_state:
+    st.session_state.active_objects = defaultdict(int)
+if "stop_processing" not in st.session_state:
+    st.session_state.stop_processing = False
+if "purchase_submitted" not in st.session_state:
+    st.session_state.purchase_submitted = False
+
+# Settings for object lifetime
+FRAME_LIFETIME = 10
+
+# Function for video processing and object detection
 def video_processing():
     detected_objects = st.session_state.detected_objects
     active_objects = st.session_state.active_objects
 
-    # تنظیم دوربین
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
@@ -90,7 +147,7 @@ def video_processing():
         return
 
     stframe = st.empty()
-    with st.sidebar:  # اضافه کردن لیست اشیاء به نوار سمت راست
+    with st.sidebar:
         st.write("🛒 **اشیاء شناسایی‌شده (ریل‌تایم):**")
         object_list_placeholder = st.empty()
 
@@ -100,7 +157,6 @@ def video_processing():
             st.warning("⚠️ عدم دریافت فریم از وب‌کم!")
             break
 
-        # شناسایی اشیاء با YOLO
         results = yolo(frame, imgsz=640)
         current_objects = set()
 
@@ -130,29 +186,25 @@ def video_processing():
         for obj in to_remove:
             del active_objects[obj]
 
-        # به‌روزرسانی لیست در سمت راست
         with object_list_placeholder.container():
             st.markdown("<div style='font-size: 20px;'>", unsafe_allow_html=True)
             for obj, count in detected_objects.items():
                 st.write(f"🟢 **{obj}**: {count} بار")
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # نمایش فریم
         stframe.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB")
 
-        # توقف پردازش
         if st.session_state.stop_processing:
             break
 
     cap.release()
     cv2.destroyAllWindows()
 
-# نمایش لیست تکمیلی با امکان تغییر تعداد
 def show_final_list():
     st.subheader("🛠️ لیست نهایی اشیاء شناسایی‌شده:")
     detected_objects = st.session_state.detected_objects
 
-    for obj, count in list(detected_objects.items()):  # استفاده از list برای حذف صفرها
+    for obj, count in list(detected_objects.items()):
         if count == 0:
             del detected_objects[obj]
         else:
@@ -166,29 +218,22 @@ def show_final_list():
             with cols[2]:
                 st.write(f"**{obj}**: {detected_objects[obj]} بار")
 
-    # دکمه ثبت خرید
     st.markdown("<hr>", unsafe_allow_html=True)
     if st.button("📦 ثبت خرید", key="submit_purchase", help="ثبت لیست خرید نهایی"):
         st.session_state.purchase_submitted = True
-        filtered_data = {k: v for k, v in detected_objects.items() if v > 0}  # حذف صفرها
+        filtered_data = {k: v for k, v in detected_objects.items() if v > 0}
         purchase_data = json.dumps(filtered_data, ensure_ascii=False, indent=2)
         st.text_area("🔗 داده‌های ارسال‌شده (JSON):", purchase_data, height=250)
         st.success("✅ خرید ثبت شد! برنامه متوقف شد.")
-        st.stop()  # توقف برنامه
+        st.stop()
 
-    # دکمه شروع دوباره
     if st.button("🔄 شروع دوباره", key="reset_button", help="شروع یک عملیات جدید"):
         st.session_state.detected_objects = {}
         st.session_state.active_objects = defaultdict(int)
         st.session_state.stop_processing = False
 
-# رابط کاربری
 def streamlit_app():
-    st.set_page_config(page_title="شناسایی اشیاء", layout="wide")
-    add_custom_css()
-
     st.title("🌟 YOLOv11 شناسایی محصولات با")
-    st.write(" .برای شناسایی محصولات از دوربین استفاده می‌کند YOLOv11 این اپلیکیشن با")
 
     col1, col2 = st.columns([1, 1])
 
@@ -205,10 +250,8 @@ def streamlit_app():
             if st.button("پایان عملیات", key="end_button"):
                 st.session_state.stop_processing = True
 
-    # نمایش لیست تکمیلی در پایان عملیات
     if st.session_state.stop_processing:
         show_final_list()
 
-# اجرای اپلیکیشن
 if __name__ == "__main__":
     streamlit_app()
