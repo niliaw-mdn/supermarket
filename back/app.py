@@ -1,3 +1,4 @@
+import cv2
 from flask import Flask, jsonify, request, send_from_directory, render_template_string
 import mysql.connector
 from flask_cors import CORS
@@ -28,6 +29,10 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['NEW_PRODUCT_IMG'] = NEW_PRODUCT_IMG
 
 app.config['CUSTOMER_IMAGE'] = '\back\customer_image'
+
+#  پوشه ذخیره تصاویر محصولات برای ترین
+output_dir = 'new_product_img'
+os.makedirs(output_dir, exist_ok=True)
 
 
 streamlit_proc = None
@@ -1461,6 +1466,76 @@ def get_customer_info(connection, cursor):
     return jsonify(customer)
 
 
+
+
+
+
+
+
+#--------------------------------------------------------------------------------------------------------
+
+@app.route('/get_products', methods=['GET'])
+def get_products():
+    """ دریافت تمام نام کالاها """
+    connection = get_db_connection()
+    cursor = connection.cursor()
+    cursor.execute("SELECT name FROM product")
+    products = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    connection.close()
+    
+    return jsonify({'products': products})
+
+@app.route('/search_products', methods=['GET'])
+def search_products():
+    """ جستجوی کالاهایی که نامشان با متن وارد شده شروع می‌شود """
+    search_term = request.args.get('query', '')  # دریافت متن جستجو از فرانت
+    connection = get_db_connection()
+    cursor = connection.cursor()
+    cursor.execute("SELECT name FROM product WHERE name LIKE %s", (search_term + '%',))
+    filtered_products = [row[0] for row in cursor.fetchall()]
+    cursor.close()
+    connection.close()
+    
+    return jsonify({'products': filtered_products})
+
+
+
+
+#ثبت تصاویری دلخواه با دوربین از محصولا برای ترین 
+@app.route('/capture_new_product_image', methods=['POST'])
+def capture_image():
+    
+    image_counter = 0
+    # دریافت نام محصول از فرانت‌اند
+    data = request.json
+    product_name = data.get('product_name', 'default_product')  # مقدار پیش‌فرض در صورت نبود نام
+    
+    cap = cv2.VideoCapture(0)  # باز کردن دوربین
+    if not cap.isOpened():
+        return jsonify({'error': 'Unable to access the camera!'}), 500
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            return jsonify({'error': 'Failed to capture frame!'}), 500
+
+        cv2.imshow('Webcam', frame)
+        k = cv2.waitKey(1)
+
+        if k % 256 == 27:  # ESC برای خروج
+            print("Escape hit, closing...")
+            break
+        elif k % 256 == ord('s'):  # ذخیره تصویر محصول با نام اختصاصی
+            img_name = os.path.join(output_dir, f"{product_name}_{image_counter}.png")
+            cv2.imwrite(img_name, frame)
+            print(f"Image {img_name} saved successfully!")
+            image_counter += 1
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+    return jsonify({'message': f'Images saved for product: {product_name}'}), 200
 
 
 
