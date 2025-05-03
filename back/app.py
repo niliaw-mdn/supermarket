@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, render_template_string
 import mysql.connector
 from flask_cors import CORS
 from functools import wraps
@@ -6,6 +6,15 @@ import os
 from db_connection import get_db_connection, close_connection
 import subprocess
 import time
+
+import subprocess
+import json
+import sys
+
+import threading
+
+from datetime import datetime
+
 app = Flask(__name__)
 CORS(app)
 
@@ -18,6 +27,11 @@ os.makedirs(NEW_PRODUCT_IMG, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['NEW_PRODUCT_IMG'] = NEW_PRODUCT_IMG
 
+app.config['CUSTOMER_IMAGE'] = '\back\customer_image'
+
+
+streamlit_proc = None
+timer = None
 
 # Route for serving images from the 'uploads' folder
 @app.route("/uploads/<path:filename>")
@@ -1004,22 +1018,447 @@ def get_category(connection, cursor):
 
 
 
-# مسیر اجرای Streamlit
-STREAMLIT_COMMAND_1 = ["streamlit", "run", "st1.py"]
+#--------------------------------------------------------------------------------------------------------------------------------
 
-@app.route('/start_streamlit_1', methods=['GET'])
-def start_streamlit_1():
+
+
+# Orders APIs
+@app.route('/insertOrder', methods=['POST'])
+@with_db_connection
+def insert_order_api(connection, cursor):
+    """
+    دریافت payload JSON به شکل:
+    {
+      "customer_name": "...",
+      "total": 123.45,
+      "order_details": [
+         {"product_id": 1, "quantity": 2, "total_price": 50.0},
+         ...
+      ]
+    }
+    و درج رکورد در جدول orders و order_details
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Invalid JSON data'}), 400
+
+    # اعتبارسنجی اولیه‌ی فیلدهای اصلی
+    if 'customer_name' not in data or 'total' not in data or 'order_details' not in data:
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    cursor = connection.cursor()
     try:
-        # بررسی اینکه آیا Streamlit در حال اجرا است
-        process = subprocess.Popen(STREAMLIT_COMMAND_1, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        time.sleep(3)  # زمان کوتاهی برای راه‌اندازی
+        # ۱) درج در جدول orders
+        insert_order_sql = """
+            INSERT INTO orders (customer_name, total, date_time, customer_phone)
+            VALUES (%s, %s, %s, %s)
+        """
+        cursor.execute(insert_order_sql, (
+            data['customer_name'],
+            data['total'],
+            datetime.now(),
+            data['customer_phone']
+        ))
+        order_id = cursor.lastrowid
 
-        return jsonify({"message": "✅ اپلیکیشن Streamlit راه‌اندازی شد!"}), 200
+        # ۲) برای هر جزئیات سفارش: بررسی موجودی و آماده‌سازی دیتای batch
+        insert_details_sql = """
+            INSERT INTO order_details (order_id, product_id, quantity, total_price, price_per_unit, category_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        details_params = []
+        for item in data['order_details']:
+            # اعتبارسنجی هر آیتم
+            if not all(k in item for k in ('product_id', 'quantity', 'total_price', 'price_per_unit', 'category_id')):
+                raise ValueError("Each order detail must include product_id, quantity, total_price, price_per_unit and category_id")
+            
+            # --- بررسی موجودی محصول ---
+            cursor.execute(
+                "SELECT available_quantity FROM products WHERE product_id = %s",
+                (item['product_id'],)
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise ValueError(f"Product ID {item['product_id']} does not exist")
+            available_qty = row[0]
+            if available_qty < item['quantity']:
+                raise ValueError(f"Not enough stock for product {item['product_id']} (have {available_qty}, need {item['quantity']})")
+            # --------------------------------
+
+            details_params.append((
+                order_id,
+                item['product_id'],
+                item['quantity'],
+                item['total_price'],
+                item['price_per_unit'],
+                item['category_id']
+            ))
+
+        # ۳) درج همه‌ی جزئیات به‌صورت batch
+        if details_params:
+            cursor.executemany(insert_details_sql, details_params)
+
+        # ۴) نهایی‌سازی تراکنش
+        connection.commit()
+        return jsonify({'order_id': order_id}), 201
+
+    except ValueError as ve:
+        connection.rollback()
+        return jsonify({'error': str(ve)}), 400
+
+    except mysql.connector.Error as db_err:
+        connection.rollback()
+        return jsonify({'error': db_err.msg}), 500
+
+    finally:
+        cursor.close()
+    
+
+
+
+
+@app.route('/getAllOrders', methods=['GET'])
+@with_db_connection
+def get_all_orders(connection, cursor):
+    try:
+        cursor = connection.cursor()
+
+        # ۱) واکشی همه‌ی سفارش‌ها
+        cursor.execute("SELECT order_id, customer_name, total, date_time, customer_phone FROM orders")
+        orders = [{
+            'order_id': oid,
+            'customer_name': cname,
+            'total': total,
+            'datetime': dt,
+            'customer_phone': cp
+        } for oid, cname, total, dt, cp in cursor.fetchall()]
+
+        # ۲) برای هر سفارش، واکشی جزئیاتش و اضافه کردن به دیکشنری سفارش
+        details_sql = """
+            SELECT od.quantity, od.total_price,
+                    p.name AS product_name, p.price_per_unit, category_id
+            FROM order_details od
+            LEFT JOIN products p ON od.product_id = p.product_id
+            WHERE od.order_id = %s
+        """
+        for order in orders:
+            cursor.execute(details_sql, (order['order_id'],))
+            order['order_details'] = [{
+                'quantity': qty,
+                'total_price': price,
+                'product_name': pname,
+                'price_per_unit': ppu,
+                'category_id' : ci
+            } for qty, price, pname, ppu, ci in cursor.fetchall()]
+
+        cursor.close()
+        return jsonify(orders), 200
+
+    except mysql.connector.Error as err:
+        # در صورت هر خطای دیتابیس، rollback و پاسخ ۵۰۰
+        connection.rollback()
+        return jsonify({'error': str(err)}), 500
+
+
+
+
+
+
+
+
+
+
+@app.route('/st1')
+def st1():
+    global streamlit_proc, timer
+
+    if streamlit_proc is None or streamlit_proc.poll() is not None:
+        streamlit_proc = subprocess.Popen(
+            ["streamlit", "run", "st1.py", "--server.port=8501"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        timer = threading.Timer(300, lambda: streamlit_proc.kill())
+        timer.start()
+
+    html = """
+    <!doctype html>
+    <html>
+      <head><meta charset="utf-8"><title>شروع Streamlit</title></head>
+      <body>
+        <script>
+          window.open("http://localhost:8501", "_blank", "resizable=yes,width=1200,height=800");
+        </script>
+        <p>✅ برنامه در پنجره جدید باز شد. لطفاً در ۵ دقیقه خرید خود را ثبت کنید.</p>
+      </body>
+    </html>
+    """
+    return render_template_string(html)
+
+@app.route('/submit', methods=['POST'])
+def submit():
+    global streamlit_proc, timer
+
+    data = request.get_json()
+    print("📥 داده‌های دریافتی:", data)
+
+    if timer:
+        timer.cancel()
+    if streamlit_proc:
+        streamlit_proc.kill()
+        streamlit_proc = None
+
+    return jsonify({"status": "success", "received_data": data}), 200
+
+
+
+
+
+
+
+
+
+
+
+
+
+@app.route("/calculate_total_weight", methods=["POST"])
+@with_db_connection
+def calculate_total_weight(connection, cursor):
+    # دریافت داده‌های JSON از فرانت
+    data = request.get_json()
+    products_list = data.get("products", [])
+    
+    total_weight = 0.0
+    details = []  # جزئیات هر محصول برای گزارش
+    errors = []   # نگهداری پیام‌های خطا در صورت عدم یافتن محصول
+
+    try:
+        with connection.cursor() as cursor:
+            for item in products_list:
+                product_id = item.get("product_id")
+                quantity = item.get("quantity", 0)
+                
+                # اجرای کوئری برای دریافت اطلاعات محصول با استفاده از product_id
+                sql = "SELECT weight, error_rate_in_weight FROM products WHERE product_id = %s"
+                cursor.execute(sql, (product_id,))
+                product = cursor.fetchone()
+                
+                if not product:
+                    errors.append(f"محصول با آی‌دی {product_id} پیدا نشد")
+                    continue
+
+                unit_weight = product['weight']
+                error_rate = product['error_rate_in_weight']
+                
+                # محاسبه وزن محصول به صورت: وزن کل = وزن واحد * تعداد * (1 + درصد خطا)
+                product_weight = unit_weight * quantity * (1 + error_rate)
+                total_weight += product_weight
+                
+                details.append({
+                    "product_id": product_id,
+                    "quantity": quantity,
+                    "calculated_weight": product_weight
+                })
     except Exception as e:
-        return jsonify({"error": f"مشکل در اجرای Streamlit: {str(e)}"}), 500
+        return jsonify({"error": "خطا در اتصال یا اجرای کوئری دیتابیس", "exception": str(e)}), 500
+    finally:
+        connection.close()
+    
+    if errors:
+        return jsonify({"error": errors}), 400
+    
+    return jsonify({
+        "total_weight": total_weight,
+        "products": details
+    })
 
 
 
+
+@app.route('/updateStockAfterOrder', methods=['POST'])
+@with_db_connection
+def update_stock_after_order(connection, cursor):
+    """
+    دریافت payload JSON با یکی از ساختارهای زیر:
+    
+    حالت اول (سفارش تک‌تک):
+    {
+      "order_details": [
+          {"product_id": 1, "quantity": 2},
+          {"product_id": 3, "quantity": 1},
+          ...
+      ]
+    }
+    
+    حالت دوم (چند سفارش):
+    {
+       "orders": [
+           {
+               "order_id": 101,
+               "order_details": [
+                   {"product_id": 1, "quantity": 2},
+                   {"product_id": 3, "quantity": 1}
+               ]
+           },
+           {
+               "order_id": 102,
+               "order_details": [
+                   {"product_id": 2, "quantity": 4}
+               ]
+           }
+       ]
+    }
+    
+    هدف: با توجه به تعداد خرید مشتری، موجودی محصولات را در جدول products کاهش دهیم.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON payload"}), 400
+
+    # استخراج لیست جزئیات سفارش از payload
+    order_items = []
+    if "orders" in data:
+        for order in data["orders"]:
+            if "order_details" not in order:
+                return jsonify({"error": "Missing order_details in one of the orders"}), 400
+            order_items.extend(order["order_details"])
+    elif "order_details" in data:
+        order_items = data["order_details"]
+    else:
+        return jsonify({"error": "Missing order information"}), 400
+
+    try:
+        update_sql = """
+            UPDATE products
+            SET available_quantity = available_quantity - %s
+            WHERE product_id = %s
+        """
+        # بررسی و به‌روزرسانی موجودی هر محصول
+        for item in order_items:
+            if not all(key in item for key in ("product_id", "quantity")):
+                raise ValueError("هر جزئیات سفارش باید شامل product_id و quantity باشد")
+
+            product_id = item["product_id"]
+            quantity = item["quantity"]
+
+            # بررسی موجودی فعلی محصول
+            select_sql = "SELECT available_quantity FROM products WHERE product_id = %s"
+            cursor.execute(select_sql, (product_id,))
+            row = cursor.fetchone()
+            if row is None:
+                raise ValueError(f"محصول با آی‌دی {product_id} وجود ندارد")
+            current_qty = row[0]
+            if current_qty < quantity:
+                raise ValueError(
+                    f"موجودی ناکافی برای محصول {product_id} (موجود: {current_qty}, درخواست شده: {quantity})"
+                )
+            
+            # به‌روزرسانی موجودی محصول
+            cursor.execute(update_sql, (quantity, product_id))
+        
+        connection.commit()
+        return jsonify({"message": "موجودی محصولات با موفقیت به روز شد"}), 200
+
+    except ValueError as ve:
+        connection.rollback()
+        return jsonify({"error": str(ve)}), 400
+
+    except mysql.connector.Error as db_err:
+        connection.rollback()
+        return jsonify({"error": db_err.msg}), 500
+
+    finally:
+        cursor.close()
+
+
+
+
+
+
+
+
+
+@app.route('/insertCustomer', methods=['POST'])
+@with_db_connection
+def insert_customer(connection, cursor):
+    try:
+        # دریافت فایل آپلود شده
+        file = request.files['file']
+        file_path = os.path.join(app.config['CUSTOMER_IMAGE'], file.filename)
+        file.save(file_path)
+        relative_file_path = os.path.relpath(file_path, app.config['CUSTOMER_IMAGE'])
+
+        # استخراج اطلاعات مشتری از فرم ارسالی
+        customer = {
+            'customer_name': request.form.get('customer_name'),
+            'customer_phone': request.form.get('customer_phone'),
+            'membership_date': request.form.get('membership_date'),
+            'number_of_purchases': request.form.get('number_of_purchases'),
+            'total': request.form.get('total'),
+            'image_address': relative_file_path
+        }
+
+        query = """INSERT INTO customer (
+                    customer_name, customer_phone, membership_date, number_of_purchases, total, image_address
+                ) VALUES (%s, %s, %s, %s, %s, %s)"""
+
+        data = (
+            customer['customer_name'],
+            customer['customer_phone'],
+            customer['membership_date'],
+            customer['number_of_purchases'],
+            customer['total'],
+            customer['image_address']
+        )
+
+        cursor.execute(query, data)
+        connection.commit()
+        customer_id = cursor.lastrowid
+
+        return jsonify({'message': 'Customer added successfully', 'customer_id': customer_id}), 201
+
+    except mysql.connector.Error as err:
+        connection.rollback()
+        return jsonify({'error': str(err)}), 500
+
+
+
+
+
+
+@app.route("/get_customer_info", methods=["GET"])
+@with_db_connection
+def get_customer_info(connection, cursor):
+    # دریافت داده‌های JSON از فرانت
+    data = request.get_json()
+    customer_phone = data.get("customer_phone")
+    
+    # بررسی وجود شماره تماس مشتری در درخواست
+    if not customer_phone:
+        return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
+
+    try:
+        with connection.cursor() as cursor:
+            # اجرای کوئری جهت جستجوی مشتری بر اساس شماره تماس
+            sql = "SELECT * FROM customers WHERE customer_phone = %s"
+            cursor.execute(sql, (customer_phone,))
+            customer = cursor.fetchone()
+            
+            # در صورتی که مشتری یافت نشد، پیام خطای مناسب ارسال می‌شود
+            if not customer:
+                return jsonify({"error": "مشتری با این شماره تماس یافت نشد"}), 404
+
+    except Exception as e:
+        return jsonify({
+            "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
+            "exception": str(e)
+        }), 500
+
+    finally:
+        connection.close()  # بستن اتصال به دیتابیس در نهایت
+
+    return jsonify(customer)
 
 
 
