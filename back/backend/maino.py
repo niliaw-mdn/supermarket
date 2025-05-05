@@ -111,7 +111,7 @@ def login():
     if not check_password_hash(password_hash, password + password_salt):
         return jsonify({'message': 'Invalid email or password'}), 401
 
-    access_token = create_access_token(identity=user['user_id'])
+    access_token = create_access_token(identity=user['user_id'], additional_claims={"type":"User"})
     refresh_token = create_refresh_token(identity=user['user_id'])
     return jsonify({'access_token': access_token, 'refresh_token': refresh_token}), 200
 
@@ -130,6 +130,9 @@ def refresh():
 @jwt_required()
 def logout():
     jti = get_jwt()['jti']
+    user_type = get_jwt()['user_type']
+    if user_type != "User":
+        raise
     revoked_tokens.add(jti)
     return jsonify({'message': 'Access token successfully revoked'}), 200
 

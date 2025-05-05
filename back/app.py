@@ -1418,6 +1418,8 @@ def insert_customer(connection, cursor):
         )
 
         cursor.execute(query, data)
+
+
         connection.commit()
         customer_id = cursor.lastrowid
 
@@ -1426,6 +1428,71 @@ def insert_customer(connection, cursor):
     except mysql.connector.Error as err:
         connection.rollback()
         return jsonify({'error': str(err)}), 500
+
+
+
+
+
+
+@app.route('/updateCustomerAfterOrder', methods=['POST'])
+@with_db_connection
+def update_customer_after_order(connection, cursor):
+    """
+    دریافت payload JSON با ساختار زیر:
+    {
+      "customer_phone": "09123456789",
+      "order_total": 250.75
+    }
+    
+    هدف: افزایش فیلد number_of_purchases به تعداد ۱ و جمع مبلغ total به مقدار order_total
+    در جدول customer برای مشتری با شماره تماس مشخص.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON payload"}), 400
+
+    # اعتبارسنجی فیلدهای ورودی
+    if "customer_phone" not in data or "order_total" not in data:
+        return jsonify({"error": "Missing customer_phone or order_total"}), 400
+
+    customer_phone = data["customer_phone"]
+    try:
+        order_total = float(data["order_total"])
+    except (ValueError, TypeError):
+        return jsonify({"error": "order_total must be a number"}), 400
+
+    try:
+        # بررسی وجود مشتری با phone
+        select_sql = "SELECT total, number_of_purchases FROM customer WHERE customer_phone = %s"
+        cursor.execute(select_sql, (customer_phone,))
+        row = cursor.fetchone()
+        if row is None:
+            return jsonify({"error": f"مشتری با شماره {customer_phone} یافت نشد"}), 404
+
+        # به‌روزرسانی رکورد مشتری
+        update_sql = """
+            UPDATE customer
+            SET total = total + %s,
+                number_of_purchases = number_of_purchases + 1
+            WHERE customer_phone = %s
+        """
+        cursor.execute(update_sql, (order_total, customer_phone))
+        connection.commit()
+
+        return jsonify({
+            "message": "مشخصات مشتری با موفقیت به‌روز شد",
+            "customer_phone": customer_phone,
+            "added_total": order_total,
+            "new_number_of_purchases": row[1] + 1,
+            "new_total": row[0] + order_total
+        }), 200
+
+    except mysql.connector.Error as db_err:
+        connection.rollback()
+        return jsonify({"error": db_err.msg}), 500
+
+    finally:
+        cursor.close()
 
 
 
