@@ -1541,6 +1541,9 @@ def get_customer_info(connection, cursor):
 
 #--------------------------------------------------------------------------------------------------------
 
+
+
+# return all products for scrool down
 @app.route('/get_products', methods=['GET'])
 def get_products():
     """ دریافت تمام نام کالاها """
@@ -1553,6 +1556,9 @@ def get_products():
     
     return jsonify({'products': products})
 
+
+
+# return the search result base on type from the bigening the type for your search result
 @app.route('/search_products', methods=['GET'])
 def search_products():
     """ جستجوی کالاهایی که نامشان با متن وارد شده شروع می‌شود """
@@ -1570,6 +1576,7 @@ def search_products():
 
 
 #ثبت تصاویری دلخواه با دوربین از محصولا برای ترین 
+#نام کاربر که یونیک است رو میگیره و با همون اسم به علاوه شماره ان تصویر در بک ذخیره میکند 
 @app.route('/capture_new_product_image', methods=['POST'])
 def capture_image():
     
@@ -1603,6 +1610,678 @@ def capture_image():
     cv2.destroyAllWindows()
 
     return jsonify({'message': f'Images saved for product: {product_name}'}), 200
+
+
+#--------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+@app.route("/get_customer_orders", methods=["GET"])
+@with_db_connection
+def get_customer_orders(connection, cursor):
+    # دریافت داده‌های JSON از فرانت
+    data = request.get_json()
+    customer_phone = data.get("customer_phone")
+
+    # بررسی وجود شماره تماس مشتری در درخواست
+    if not customer_phone:
+        return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
+
+    try:
+        # اجرای کوئری جهت جستجوی خریدهای مشتری بر اساس شماره تماس
+        sql = """
+            SELECT o.order_id, o.customer_name, o.total, o.date_time
+            FROM orders o
+            JOIN customer c ON o.customer_phone = c.customer_phone
+            WHERE c.customer_phone = %s
+        """
+        cursor.execute(sql, (customer_phone,))
+        orders = cursor.fetchall()
+
+        # در صورتی که خریدی یافت نشد، پیام مناسب ارسال می‌شود
+        if not orders:
+            return jsonify({"error": "هیچ خریدی برای این شماره تماس یافت نشد"}), 404
+
+        # ساخت لیست خریدهای مشتری
+        order_list = []
+        for order in orders:
+            order_list.append({
+                "order_id": order["order_id"],
+                "customer_name": order["customer_name"],
+                "total": order["total"],
+                "date_time": order["date_time"]
+            })
+    except Exception as e:
+        return jsonify({
+            "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
+            "exception": str(e)
+        }), 500
+
+    return jsonify(order_list)
+
+@app.route("/get_order_details/<int:order_id>", methods=["GET"])
+@with_db_connection
+def get_order_details(order_id, connection, cursor):
+    try:
+        # اجرای کوئری جهت دریافت جزئیات خرید بر اساس order_id
+        sql = """
+            SELECT 
+                od.product_id, 
+                p.name, 
+                od.quantity, 
+                od.total_price, 
+                od.ppu, 
+                c.category_name
+            FROM order_details od
+            JOIN product p ON od.product_id = p.product_id
+            JOIN categories c ON od.category_id = c.category_id
+            WHERE od.order_id = %s
+        """
+        cursor.execute(sql, (order_id,))
+        order_details = cursor.fetchall()
+
+        # در صورت عدم وجود جزئیات خرید برای شناسه دریافت‌شده
+        if not order_details:
+            return jsonify({"error": "جزئیاتی برای این خرید یافت نشد"}), 404
+    except Exception as e:
+        return jsonify({
+            "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
+            "exception": str(e)
+        }), 500
+
+    return jsonify(order_details)
+
+
+
+#-----------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+#های آماری با استفاده از سفارشات api
+
+# 1. API: مجموع کل فروش
+@app.route("/stats/total_sales", methods=["GET"])
+@with_db_connection
+def total_sales(connection, cursor):
+    try:
+        sql = "SELECT IFNULL(SUM(total), 0) AS total_sales FROM orders"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 2. API: تعداد کل سفارش‌ها
+@app.route("/stats/total_orders", methods=["GET"])
+@with_db_connection
+def total_orders(connection, cursor):
+    try:
+        sql = "SELECT COUNT(*) AS total_orders FROM orders"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 3. API: میانگین ارزش سفارش‌ها
+@app.route("/stats/average_order_value", methods=["GET"])
+@with_db_connection
+def average_order_value(connection, cursor):
+    try:
+        sql = "SELECT IFNULL(AVG(total), 0) AS avg_order_value FROM orders"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 4. API: سفارش‌ها بر اساس تاریخ (تعداد سفارش روزانه)
+@app.route("/stats/orders_by_date", methods=["GET"])
+@with_db_connection
+def orders_by_date(connection, cursor):
+    try:
+        sql = """
+        SELECT DATE(date_time) AS date, COUNT(*) AS order_count 
+        FROM orders 
+        GROUP BY DATE(date_time) 
+        ORDER BY date
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 5. API: مجموع فروش روزانه
+@app.route("/stats/sales_by_date", methods=["GET"])
+@with_db_connection
+def sales_by_date(connection, cursor):
+    try:
+        sql = """
+        SELECT DATE(date_time) AS date, IFNULL(SUM(total), 0) AS daily_sales 
+        FROM orders 
+        GROUP BY DATE(date_time) 
+        ORDER BY date
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 6. API: مجموع فروش ماهانه
+@app.route("/stats/sales_by_month", methods=["GET"])
+@with_db_connection
+def sales_by_month(connection, cursor):
+    try:
+        sql = """
+        SELECT DATE_FORMAT(date_time, '%Y-%m') AS month, IFNULL(SUM(total), 0) AS monthly_sales 
+        FROM orders 
+        GROUP BY DATE_FORMAT(date_time, '%Y-%m') 
+        ORDER BY month
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 7. API: مجموع فروش سالانه
+@app.route("/stats/sales_by_year", methods=["GET"])
+@with_db_connection
+def sales_by_year(connection, cursor):
+    try:
+        sql = """
+        SELECT YEAR(date_time) AS year, IFNULL(SUM(total), 0) AS yearly_sales 
+        FROM orders 
+        GROUP BY YEAR(date_time) 
+        ORDER BY year
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 8. API: مشتریان برتر (بزرگترین هزینه)
+@app.route("/stats/top_customers", methods=["GET"])
+@with_db_connection
+def top_customers(connection, cursor):
+    try:
+        sql = """
+        SELECT o.customer_phone, c.customer_name, IFNULL(SUM(o.total), 0) AS total_spent 
+        FROM orders o
+        JOIN customer c ON o.customer_phone = c.customer_phone
+        GROUP BY o.customer_phone, c.customer_name
+        ORDER BY total_spent DESC
+        LIMIT 5
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 9. API: تعداد سفارش‌های هر مشتری
+@app.route("/stats/customer_order_counts", methods=["GET"])
+@with_db_connection
+def customer_order_counts(connection, cursor):
+    try:
+        sql = "SELECT customer_phone, COUNT(*) AS order_count FROM orders GROUP BY customer_phone ORDER BY order_count DESC"
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 10. API: محصولات پرفروش (بر اساس تعداد)
+@app.route("/stats/top_products", methods=["GET"])
+@with_db_connection
+def top_products(connection, cursor):
+    try:
+        sql = """
+        SELECT od.product_id, p.name, IFNULL(SUM(od.quantity), 0) AS total_quantity 
+        FROM order_details od
+        JOIN product p ON od.product_id = p.product_id
+        GROUP BY od.product_id, p.name
+        ORDER BY total_quantity DESC
+        LIMIT 5
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 11. API: درآمد هر محصول
+@app.route("/stats/product_revenue", methods=["GET"])
+@with_db_connection
+def product_revenue(connection, cursor):
+    try:
+        sql = """
+        SELECT od.product_id, p.name, IFNULL(SUM(od.total_price), 0) AS product_revenue 
+        FROM order_details od
+        JOIN product p ON od.product_id = p.product_id
+        GROUP BY od.product_id, p.name
+        ORDER BY product_revenue DESC
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 12. API: درآمد بر اساس دسته‌بندی محصولات
+@app.route("/stats/revenue_by_category", methods=["GET"])
+@with_db_connection
+def revenue_by_category(connection, cursor):
+    try:
+        sql = """
+        SELECT c.category_id, c.category_name, IFNULL(SUM(od.total_price), 0) AS category_revenue 
+        FROM order_details od
+        JOIN categories c ON od.category_id = c.category_id
+        GROUP BY c.category_id, c.category_name
+        ORDER BY category_revenue DESC
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 13. API: میانگین تعداد آیتم در هر سفارش
+@app.route("/stats/average_items_per_order", methods=["GET"])
+@with_db_connection
+def average_items_per_order(connection, cursor):
+    try:
+        sql = """
+        SELECT IFNULL(AVG(item_count), 0) AS avg_items_per_order 
+        FROM (
+            SELECT order_id, COUNT(*) AS item_count 
+            FROM order_details 
+            GROUP BY order_id
+        ) AS sub
+        """
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 14. API: محبوب‌ترین دسته‌بندی‌ها (بر اساس تعداد سفارش)
+@app.route("/stats/most_popular_categories", methods=["GET"])
+@with_db_connection
+def most_popular_categories(connection, cursor):
+    try:
+        sql = """
+        SELECT c.category_id, c.category_name, COUNT(od.order_id) AS order_count
+        FROM order_details od
+        JOIN categories c ON od.category_id = c.category_id
+        GROUP BY c.category_id, c.category_name
+        ORDER BY order_count DESC
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 15. API: تعداد سفارشات در 30 روز گذشته
+@app.route("/stats/orders_last_30_days", methods=["GET"])
+@with_db_connection
+def orders_last_30_days(connection, cursor):
+    try:
+        sql = "SELECT COUNT(*) AS orders_last_30 FROM orders WHERE date_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 16. API: مجموع فروش در 30 روز گذشته
+@app.route("/stats/sales_last_30_days", methods=["GET"])
+@with_db_connection
+def sales_last_30_days(connection, cursor):
+    try:
+        sql = "SELECT IFNULL(SUM(total), 0) AS sales_last_30 FROM orders WHERE date_time >= DATE_SUB(NOW(), INTERVAL 30 DAY)"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 17. API: تعداد سفارشات در 7 روز گذشته
+@app.route("/stats/orders_last_7_days", methods=["GET"])
+@with_db_connection
+def orders_last_7_days(connection, cursor):
+    try:
+        sql = "SELECT COUNT(*) AS orders_last_7 FROM orders WHERE date_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 18. API: مجموع فروش در 7 روز گذشته
+@app.route("/stats/sales_last_7_days", methods=["GET"])
+@with_db_connection
+def sales_last_7_days(connection, cursor):
+    try:
+        sql = "SELECT IFNULL(SUM(total), 0) AS sales_last_7 FROM orders WHERE date_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 19. API: تعداد سفارشات در یک ساعت گذشته
+@app.route("/stats/orders_last_hour", methods=["GET"])
+@with_db_connection
+def orders_last_hour(connection, cursor):
+    try:
+        sql = "SELECT COUNT(*) AS orders_last_hour FROM orders WHERE date_time >= DATE_SUB(NOW(), INTERVAL 1 HOUR)"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 20. API: ساعت اوج سفارشات (ساعتی که بیشترین سفارش ثبت شده)
+@app.route("/stats/peak_order_hour", methods=["GET"])
+@with_db_connection
+def peak_order_hour(connection, cursor):
+    try:
+        sql = "SELECT HOUR(date_time) AS hour, COUNT(*) AS order_count FROM orders GROUP BY HOUR(date_time) ORDER BY order_count DESC LIMIT 1"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 21. API: الگوی سفارشات در یک روز (با گروه‌بندی بر اساس ساعت)
+@app.route("/stats/daily_order_pattern", methods=["GET"])
+@with_db_connection
+def daily_order_pattern(connection, cursor):
+    try:
+        # دریافت تاریخ از پارامترهای GET یا استفاده از تاریخ امروز
+        date_str = request.args.get("date")
+        if not date_str:
+            date_str = datetime.date.today().isoformat()
+        sql = """
+        SELECT HOUR(date_time) AS hour, COUNT(*) AS orders 
+        FROM orders 
+        WHERE DATE(date_time) = %s 
+        GROUP BY HOUR(date_time)
+        ORDER BY hour
+        """
+        cursor.execute(sql, (date_str,))
+        result = cursor.fetchall()
+        return jsonify({"date": date_str, "pattern": result})
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 22. API: نرخ نگهداری مشتریان (مشتریانی که بیش از یک سفارش داشته‌اند)
+@app.route("/stats/customer_retention", methods=["GET"])
+@with_db_connection
+def customer_retention(connection, cursor):
+    try:
+        sql_total = "SELECT COUNT(DISTINCT customer_phone) AS total_customers FROM orders"
+        cursor.execute(sql_total)
+        total_customers = cursor.fetchone()["total_customers"]
+        sql_repeat = """
+        SELECT COUNT(*) AS repeat_customers 
+        FROM (SELECT customer_phone, COUNT(*) AS order_count FROM orders GROUP BY customer_phone HAVING order_count > 1) AS sub
+        """
+        cursor.execute(sql_repeat)
+        repeat_customers = cursor.fetchone()["repeat_customers"]
+        retention_rate = (repeat_customers / total_customers * 100) if total_customers else 0
+        return jsonify({
+            "total_customers": total_customers,
+            "repeat_customers": repeat_customers,
+            "retention_rate_percentage": retention_rate
+        })
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 23. API: مشتریان جدید در مقابل مشتریان برگشتی
+@app.route("/stats/new_vs_returning_customers", methods=["GET"])
+@with_db_connection
+def new_vs_returning_customers(connection, cursor):
+    try:
+        sql = "SELECT customer_phone, COUNT(*) AS order_count FROM orders GROUP BY customer_phone"
+        cursor.execute(sql)
+        data = cursor.fetchall()
+        new_customers = sum(1 for d in data if d["order_count"] == 1)
+        returning_customers = sum(1 for d in data if d["order_count"] > 1)
+        return jsonify({
+            "new_customers": new_customers,
+            "returning_customers": returning_customers
+        })
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 24. API: نرخ تحقق سفارش (با استفاده از ستون status، فرض شده 'fulfilled' نشان‌دهنده تکمیل است)
+@app.route("/stats/order_fulfillment_rate", methods=["GET"])
+@with_db_connection
+def order_fulfillment_rate(connection, cursor):
+    try:
+        sql = "SELECT COUNT(*) AS total, SUM(CASE WHEN status='fulfilled' THEN 1 ELSE 0 END) AS fulfilled FROM orders"
+        cursor.execute(sql)
+        res = cursor.fetchone()
+        rate = (res["fulfilled"] / res["total"] * 100) if res["total"] else 0
+        return jsonify({
+            "total_orders": res["total"],
+            "fulfilled_orders": res["fulfilled"],
+            "fulfillment_rate_percentage": rate
+        })
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 25. API: نرخ لغو سفارش
+@app.route("/stats/cancellation_rate", methods=["GET"])
+@with_db_connection
+def cancellation_rate(connection, cursor):
+    try:
+        sql = "SELECT COUNT(*) AS total, SUM(CASE WHEN status='canceled' THEN 1 ELSE 0 END) AS canceled FROM orders"
+        cursor.execute(sql)
+        res = cursor.fetchone()
+        rate = (res["canceled"] / res["total"] * 100) if res["total"] else 0
+        return jsonify({
+            "total_orders": res["total"],
+            "canceled_orders": res["canceled"],
+            "cancellation_rate_percentage": rate
+        })
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 26. API: فروش بر اساس روش پرداخت (فرض بر این که ستون payment_method در orders موجود است)
+@app.route("/stats/sales_by_payment_method", methods=["GET"])
+@with_db_connection
+def sales_by_payment_method(connection, cursor):
+    try:
+        sql = "SELECT payment_method, IFNULL(SUM(total), 0) AS total_sales FROM orders GROUP BY payment_method"
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 27. API: فروش بر اساس منطقه (فرض شده ستون region در جدول customer موجود است)
+@app.route("/stats/sales_by_region", methods=["GET"])
+@with_db_connection
+def sales_by_region(connection, cursor):
+    try:
+        sql = """
+        SELECT c.region, IFNULL(SUM(o.total), 0) AS total_sales 
+        FROM orders o
+        JOIN customer c ON o.customer_phone = c.customer_phone
+        GROUP BY c.region
+        """
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 28. API: خلاصه جزئیات سفارش‌ها (تعداد آیتم‌ها، مجموع تعداد، و درآمد کل)
+@app.route("/stats/order_details_summary", methods=["GET"])
+@with_db_connection
+def order_details_summary(connection, cursor):
+    try:
+        sql = "SELECT COUNT(*) AS total_items, IFNULL(SUM(quantity), 0) AS total_quantity, IFNULL(SUM(total_price), 0) AS total_revenue FROM order_details"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 29. API: میانگین ارزش سفارش به ازای هر مشتری
+@app.route("/stats/customer_average_order_value", methods=["GET"])
+@with_db_connection
+def customer_average_order_value(connection, cursor):
+    try:
+        sql = "SELECT customer_phone, AVG(total) AS avg_order_value FROM orders GROUP BY customer_phone ORDER BY avg_order_value DESC"
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 30. API: میانه ارزش سفارش‌ها
+@app.route("/stats/median_order_value", methods=["GET"])
+@with_db_connection
+def median_order_value(connection, cursor):
+    try:
+        sql = """
+        SELECT AVG(total) AS median_order_value FROM (
+            SELECT total FROM orders
+            ORDER BY total
+            LIMIT 2 - (SELECT COUNT(*) FROM orders) % 2
+            OFFSET (SELECT (COUNT(*) - 1) / 2 FROM orders)
+        ) AS med
+        """
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 31. API: واریانس و انحراف معیار ارزش سفارش‌ها
+@app.route("/stats/order_variance_std", methods=["GET"])
+@with_db_connection
+def order_variance_std(connection, cursor):
+    try:
+        sql = "SELECT VARIANCE(total) AS variance, STD(total) AS std_deviation FROM orders"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 32. API: میانگین تعداد محصولات در هر سفارش
+@app.route("/stats/products_per_order", methods=["GET"])
+@with_db_connection
+def products_per_order(connection, cursor):
+    try:
+        sql = "SELECT AVG(product_count) AS avg_products_per_order FROM (SELECT order_id, COUNT(*) AS product_count FROM order_details GROUP BY order_id) AS sub"
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 33. API: نرخ سفارش‌های تکراری (درصد سفارش‌هایی که از مشتریان برگشتی هستند)
+@app.route("/stats/repeat_order_rate", methods=["GET"])
+@with_db_connection
+def repeat_order_rate(connection, cursor):
+    try:
+        sql_total = "SELECT COUNT(*) AS total_orders FROM orders"
+        cursor.execute(sql_total)
+        total = cursor.fetchone()["total_orders"]
+        sql_repeat = "SELECT COUNT(*) AS repeat_orders FROM orders WHERE customer_phone IN (SELECT customer_phone FROM orders GROUP BY customer_phone HAVING COUNT(*) > 1)"
+        cursor.execute(sql_repeat)
+        repeat_orders = cursor.fetchone()["repeat_orders"]
+        rate = (repeat_orders / total * 100) if total else 0
+        return jsonify({
+            "total_orders": total,
+            "repeat_orders": repeat_orders,
+            "repeat_order_rate_percentage": rate
+        })
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 34. API: توزیع فروش ساعتی برای امروز
+@app.route("/stats/hrly_sales_distribution", methods=["GET"])
+@with_db_connection
+def hrly_sales_distribution(connection, cursor):
+    try:
+        sql = "SELECT HOUR(date_time) AS hour, IFNULL(SUM(total), 0) AS sales FROM orders WHERE DATE(date_time) = CURDATE() GROUP BY HOUR(date_time) ORDER BY hour"
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 35. API: میانگین فروش روزانه طی 30 روز گذشته
+@app.route("/stats/daily_sales_average", methods=["GET"])
+@with_db_connection
+def daily_sales_average(connection, cursor):
+    try:
+        sql = """
+        SELECT AVG(daily_sales) AS avg_daily_sales FROM (
+            SELECT DATE(date_time) AS date, IFNULL(SUM(total), 0) AS daily_sales 
+            FROM orders 
+            WHERE date_time >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            GROUP BY DATE(date_time)
+        ) AS sub
+        """
+        cursor.execute(sql)
+        result = cursor.fetchone()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 36. API: روند فروش هفتگی (12 هفته اخیر)
+@app.route("/stats/weekly_sales_trend", methods=["GET"])
+@with_db_connection
+def weekly_sales_trend(connection, cursor):
+    try:
+        sql = "SELECT YEARWEEK(date_time) AS week, IFNULL(SUM(total), 0) AS weekly_sales FROM orders GROUP BY YEARWEEK(date_time) ORDER BY week DESC LIMIT 12"
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 37. API: رشد فروش ماهانه (مقایسه فروش ماه جاری با ماه قبلی)
+@app.route("/stats/monthly_sales_growth", methods=["GET"])
+@with_db_connection
+def monthly_sales_growth(connection, cursor):
+    try:
+        sql_current = "SELECT IFNULL(SUM(total), 0) AS current_sales FROM orders WHERE MONTH(date_time)=MONTH(CURDATE()) AND YEAR(date_time)=YEAR(CURDATE())"
+        cursor.execute(sql_current)
+        current_sales = cursor.fetchone()["current_sales"]
+        
+        sql_prev = "SELECT IFNULL(SUM(total), 0) AS previous_sales FROM orders WHERE MONTH(date_time)=MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(date_time)=YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))"
+        cursor.execute(sql_prev)
+        previous_sales = cursor.fetchone()["previous_sales"]
+
+        growth_rate = ((current_sales - previous_sales) / previous_sales * 100) if previous_sales else None
+        return jsonify({
+            "current_sales": current_sales,
+            "previous_sales": previous_sales,
+            "growth_rate_percentage": growth_rate
+        })
+    except Exception as e:
+        return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+# 38. API: تعداد سفارش‌ها و درآمد بر اساس دسته‌ب
+
+
 
 
 
