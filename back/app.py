@@ -1,5 +1,5 @@
 import cv2
-from flask import Flask, jsonify, redirect, request, send_from_directory, render_template_string
+from flask import Flask, jsonify, redirect, request, Response, send_from_directory, render_template_string
 import mysql.connector
 from flask_cors import CORS
 from functools import wraps
@@ -14,7 +14,7 @@ import sys
 
 import threading
 
-from datetime import datetime
+from datetime import datetime, date 
 
 import signal
 
@@ -170,14 +170,14 @@ def total_profit(connection, cursor):
     return jsonify(result)
 
 # T
-# 6. تعداد محصولات منقضی شده
+# 6.  محصولات منقضی شده
 @app.route('/expired_productspn', methods=['GET'])
 @with_db_connection
 def expired_productspn(connection, cursor):
     # دریافت پارامترهای صفحه‌بندی
     page = request.args.get('page', default=1, type=int)
     limit = request.args.get('limit', default=20, type=int)
-    
+
     try:
         # شمارش تعداد کل محصولات منقضی شده
         count_query = "SELECT COUNT(*) FROM product WHERE expiration_date < CURDATE()"
@@ -209,16 +209,23 @@ def expired_productspn(connection, cursor):
                 "category_id": row[6]
             })
 
-        return jsonify({
+        # بازگشت پاسخ JSON با جلوگیری از escape کاراکترهای غیر ASCII
+        response_data = {
             "page": page,
             "limit": limit,
             "total_products": total_products,
             "total_pages": total_pages,
             "products": products
-        })
+        }
+
+        return Response(
+            json.dumps(response_data, ensure_ascii=False),
+            mimetype='application/json'
+        )
 
     except mysql.connector.Error as err:
         return jsonify({"error": str(err)}), 500
+
 
 
 # T
@@ -233,15 +240,14 @@ def expiring_products(connection, cursor):
 
 
 # 7.2 لیست محصولات در حال انقضاء (در یک ماه آینده) با پیجینیشن
+
 @app.route('/expiring_productspn', methods=['GET'])
 @with_db_connection
 def expiring_productspn(connection, cursor):
-    # دریافت پارامترهای صفحه‌بندی
     page = request.args.get('page', default=1, type=int)
     limit = request.args.get('limit', default=20, type=int)
     
     try:
-        # شمارش تعداد کل محصولات در حال انقضاء
         count_query = """
             SELECT COUNT(*) 
             FROM product 
@@ -251,9 +257,9 @@ def expiring_productspn(connection, cursor):
         total_products = cursor.fetchone()[0]
         total_pages = (total_products + limit - 1) // limit
 
-        # دریافت لیست محصولات در حال انقضاء
         select_query = """
-            SELECT product_id, name, price_per_unit, available_quantity, image_address, expiration_date, category_id FROM product
+            SELECT product_id, name, price_per_unit, available_quantity, image_address, expiration_date, category_id 
+            FROM product
             WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
             ORDER BY expiration_date ASC
             LIMIT %s OFFSET %s
@@ -273,16 +279,20 @@ def expiring_productspn(connection, cursor):
                 "category_id": row[6]
             })
 
-        return jsonify({
+        # تبدیل به JSON بدون یونیکد اسکیپ‌شده
+        response_data = json.dumps({
             "page": page,
             "limit": limit,
             "total_products": total_products,
             "total_pages": total_pages,
             "products": products
-        })
+        }, ensure_ascii=False)
+
+        return Response(response_data, content_type='application/json')
 
     except mysql.connector.Error as err:
         return jsonify({"error": str(err)}), 500
+
 
 
 
@@ -310,8 +320,13 @@ def total_weight(connection, cursor):
             corrected_weight = (weight + (weight * error_rate)) * quantity
             total_weight_sum += corrected_weight
             products.append({"name": name, "corrected_weight": corrected_weight})
-        return jsonify({"total_weight": total_weight_sum, "products": products})
-    return jsonify({"error": "No products found"}), 404
+        
+        response_data = {"total_weight": total_weight_sum, "products": products}
+        return Response(json.dumps(response_data, ensure_ascii=False), content_type="application/json; charset=utf-8")
+
+    error_data = {"error": "محصولی یافت نشد"}
+    return Response(json.dumps(error_data, ensure_ascii=False), content_type="application/json; charset=utf-8"), 404
+
 
 # T
 # 10. بیشترین قیمت هر واحد
@@ -610,6 +625,9 @@ def get_available_quantity(connection, cursor, product_id):
 
 
 # if its worked delete this line and replace it by T
+from flask import Response
+import json
+
 @app.route('/getProductspn', methods=['GET'])
 @with_db_connection
 def get_productspn(connection, cursor):
@@ -618,7 +636,6 @@ def get_productspn(connection, cursor):
             connection.reconnect()
             cursor = connection.cursor()
 
-        # Retrieve query parameters safely
         page = request.args.get('page', default=1, type=int)
         limit = request.args.get('limit', default=20, type=int)
         search = request.args.get('search', default='', type=str)
@@ -628,7 +645,6 @@ def get_productspn(connection, cursor):
         sort_field = request.args.get('sort', default='name', type=str)
         sort_order = request.args.get('order', default='asc', type=str)
 
-        # Log received parameters
         print("Received parameters:", {
             'page': page,
             'limit': limit,
@@ -640,7 +656,6 @@ def get_productspn(connection, cursor):
             'sort_order': sort_order,
         })
 
-        # Ensure sort field is valid
         valid_sort_fields = ['name', 'price_per_unit', 'available_quantity']
         if sort_field not in valid_sort_fields:
             print(f"Invalid sort field: {sort_field}, defaulting to 'name'")
@@ -649,12 +664,11 @@ def get_productspn(connection, cursor):
         sort_direction = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
         order_by_clause = f"ORDER BY product.{sort_field} {sort_direction}"
 
-        # Filters and query parameters
         filters = []
         query_params = []
 
         if search:
-            filters.append("(product.name LIKE %s OR category.category_name LIKE %s)")
+            filters.append("(product.name LIKE %s OR categories.category_name LIKE %s)")
             search_term = f"%{search}%"
             query_params.extend([search_term, search_term])
 
@@ -674,24 +688,22 @@ def get_productspn(connection, cursor):
 
         filter_query = " WHERE " + " AND ".join(filters) if filters else ""
 
-        # Get total product count
         count_query = f"""
             SELECT COUNT(*)
             FROM grocery_store.product
-            JOIN category ON product.category_id = category.category_id
+            JOIN categories ON product.category_id = categories.category_id
             {filter_query}
         """
         cursor.execute(count_query, tuple(query_params))
         total_products = cursor.fetchone()[0]
         total_pages = (total_products + limit - 1) // limit
 
-        # Get product list with pagination
         offset = (page - 1) * limit
         select_query = f"""
             SELECT product.product_id, product.name, product.price_per_unit, product.available_quantity, 
-            product.image_address, product.category_id, category.category_name
+                   product.image_address, product.category_id, categories.category_name
             FROM grocery_store.product
-            JOIN category ON product.category_id = category.category_id
+            JOIN categories ON product.category_id = categories.category_id
             {filter_query}
             {order_by_clause}
             LIMIT %s OFFSET %s
@@ -711,42 +723,50 @@ def get_productspn(connection, cursor):
             for row in cursor.fetchall()
         ]
 
-        return jsonify({
+        response_data = {
             'page': page,
             'limit': limit,
             'total_products': total_products,
             'total_pages': total_pages,
             'products': products
-        })
+        }
+        return Response(json.dumps(response_data, ensure_ascii=False), content_type='application/json; charset=utf-8')
     
     except mysql.connector.Error as err:
-        print(f"Database error: {err}")  # Debugging
-        return jsonify({'error': str(err)}), 500
+        print(f"Database error: {err}")
+        return Response(json.dumps({'error': str(err)}, ensure_ascii=False), content_type='application/json; charset=utf-8'), 500
     except Exception as e:
-        print(f"Unexpected error: {e}")  # Debugging
-        return jsonify({'error': str(e)}), 500
+        print(f"Unexpected error: {e}")
+        return Response(json.dumps({'error': str(e)}, ensure_ascii=False), content_type='application/json; charset=utf-8'), 500
+
 
 
 @app.route('/getProduct/<int:product_id>', methods=['GET'])
 @with_db_connection
 def get_one_product(connection, cursor, product_id):
-    query = """SELECT product.product_id, product.name, product.uom_id, product.price_per_unit, 
-    product.available_quantity, product.manufacturer_name, product.weight, product.purchase_price, 
-    product.discount_percentage, product.voluminosity, product.combinations, 
-    product.nutritional_information, product.expiration_date, product.storage_conditions, 
-    product.number_sold, product.date_added_to_stock, product.total_profit_on_sales, 
-    product.error_rate_in_weight, product.image_address, product.category_id, 
-    uom.uom_name, category.category_name 
-    FROM grocery_store.product 
-    JOIN uom ON product.uom_id = uom.uom_id 
-    JOIN category ON product.category_id = category.category_id 
-    WHERE product.product_id = %s"""
+    query = """
+        SELECT product.product_id, product.name, product.uom_id, product.price_per_unit, 
+               product.available_quantity, product.manufacturer_name, product.weight, 
+               product.purchase_price, product.discount_percentage, product.voluminosity, 
+               product.combinations, product.nutritional_information, product.expiration_date, 
+               product.storage_conditions, product.number_sold, product.date_added_to_stock, 
+               product.total_profit_on_sales, product.error_rate_in_weight, 
+               product.image_address, product.category_id, 
+               uom.uom_name, categories.category_name 
+        FROM grocery_store.product 
+        JOIN uom ON product.uom_id = uom.uom_id 
+        JOIN categories ON product.category_id = categories.category_id 
+        WHERE product.product_id = %s
+    """
 
     cursor.execute(query, (product_id,))
     product = cursor.fetchone()
 
     if product is None:
         return jsonify({"error": "Product not found"}), 404
+
+    def safe_date(val):
+        return val.isoformat() if isinstance(val, (datetime, date)) else val
 
     response = {
         'product_id': product[0],
@@ -761,10 +781,10 @@ def get_one_product(connection, cursor, product_id):
         'voluminosity': product[9],
         'combinations': product[10],
         'nutritional_information': product[11],
-        'expiration_date': product[12],
+        'expiration_date': safe_date(product[12]),
         'storage_conditions': product[13],
         'number_sold': product[14],
-        'date_added_to_stock': product[15],
+        'date_added_to_stock': safe_date(product[15]),
         'total_profit_on_sales': product[16],
         'error_rate_in_weight': product[17],
         'image_address': product[18],
@@ -773,7 +793,11 @@ def get_one_product(connection, cursor, product_id):
         'category_name': product[21]
     }
 
-    return jsonify(response)
+    return Response(
+        json.dumps(response, ensure_ascii=False),
+        content_type='application/json; charset=utf-8'
+    )
+
 
 # T
 # update all attribute of a product except id
@@ -995,31 +1019,48 @@ def get_uom(connection, cursor):
             'uom_id': uom_id,
             'uom_name': uom_name
         })
-    return jsonify(response)
+    return Response(
+        json.dumps(response, ensure_ascii=False),
+        content_type='application/json; charset=utf-8'
+    )
 
 
 
 # T
 # return all category
+from flask import Response
+import json
+
 @app.route('/getcategory', methods=['GET'])
 @with_db_connection
 def get_category(connection, cursor):
     try:
         if not connection.is_connected():
             connection.reconnect(attempts=3, delay=2)
-        cursor.execute("SELECT * FROM category")
-        categories = cursor.fetchall()
 
-        response = [{'category_id': row[0], 'category_name': row[1]} for row in categories]
+        cursor.execute("""
+            SELECT c.category_id, c.category_name, COUNT(p.product_id) AS product_count
+            FROM categories c
+            LEFT JOIN product p ON c.category_id = p.category_id
+            GROUP BY c.category_id, c.category_name
+        """)
 
-        cursor.close()
+        response = [
+            {
+                'category_id': row[0],
+                'category_name': row[1],
+                'product_count': row[2]
+            }
+            for row in cursor.fetchall()
+        ]
 
-        return jsonify(response)
-    
+        return Response(
+            json.dumps(response, ensure_ascii=False),
+            content_type='application/json; charset=utf-8'
+        )
+
     except mysql.connector.Error as err:
         return jsonify({'error': str(err)}), 500
-
-
 
 
 

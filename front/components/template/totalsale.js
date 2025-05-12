@@ -6,81 +6,94 @@ import Chart from "./chart";
 const ApexCharts = dynamic(() => import("react-apexcharts"), { ssr: false });
 
 function TotalSale() {
-  const [data, setData] = useState([]);
+  const [dailySalesData, setDailySalesData] = useState([]);
+  const [paymentMethodSales, setPaymentMethodSales] = useState([]);
   const [pieChartOptions, setPieChartOptions] = useState(null);
   const [showLegend, setShowLegend] = useState(false);
 
   useEffect(() => {
-    axios
-      .get(`server/totalSales.json`)
-      .then((res) => {
-        setData(res.data);
-
-        const productNames = res.data.map(
-          (record) => record["پرفروش‌ترین محصول"]
+    const fetchData = async () => {
+      try {
+        const salesResponse = await axios.get(
+          `http://localhost:5000/stats/sales_by_date`
         );
-        const salesPerProduct = res.data.map((record) => record["فروش روزانه"]);
+        const paymentMethodResponse = await axios.get(
+          `http://localhost:5000/stats/sales_by_payment_method`
+        );
+
+        const dailySales = salesResponse.data;
+        const paymentMethods = paymentMethodResponse.data;
+
+        // Process and format the date data
+        const categories = dailySales.map((record) => {
+          const date = new Date(record[0]);
+          return date.toLocaleDateString("fa-IR", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          });
+        });
+
+        const dailyData = dailySales.map((record) => record[1]); // sales data
+
+        const pieData = paymentMethods.map((record) => record.total_sales);
+        const labels = paymentMethods.map((record) => record.payment_method);
+
+        setDailySalesData(dailySales);
+        setPaymentMethodSales(paymentMethods);
 
         setPieChartOptions({
-          series: salesPerProduct,
-          options: {
-            chart: {
-              type: "pie",
-            },
-            labels: productNames,
-            legend: {
-              show: false,
-              position: "bottom",
-            },
-            colors: ["#FF5733", "#33FF57", "#5733FF", "#FFC300", "#DAF7A6"],
-            responsive: [
-              {
-                breakpoint: 480,
-                options: {
-                  chart: {
-                    width: 300,
-                  },
-                  legend: {
-                    position: "bottom",
+          dailyData: {
+            title: "Daily Sales",
+            categories: categories,
+            data: dailyData,
+            color: "#FF5733",
+          },
+          pieData: {
+            series: pieData,
+            options: {
+              chart: { type: "pie" },
+              labels: labels,
+              legend: { show: false, position: "bottom" },
+              colors: ["#FF5733", "#33FF57", "#5733FF", "#FFC300", "#DAF7A6"],
+              responsive: [
+                {
+                  breakpoint: 480,
+                  options: {
+                    chart: { width: 300 },
+                    legend: { position: "bottom" },
                   },
                 },
-              },
-            ],
+              ],
+            },
           },
         });
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error("Error fetching data: ", err);
-      });
+      }
+    };
+
+    fetchData();
   }, []);
 
-  const totalSales = data.reduce(
-    (acc, record) => acc + record["فروش روزانه"],
+  // Calculate total sales and total transactions
+  const totalSales = dailySalesData.reduce(
+    (acc, record) => acc + record.daily_sales,
     0
   );
-  const totalTransactions = data.reduce(
-    (acc, record) => acc + record["تعداد تراکنش‌ها"],
-    0
-  );
+  const totalTransactions = dailySalesData.length;
   const avgTransactionValue = totalTransactions
     ? totalSales / totalTransactions
     : 0;
 
-  const dailyData = {
-    title: "Daily Sales",
-    categories: data.map((record) => record["تاریخ"]),
-    data: data.map((record) => record["فروش روزانه"]),
-    color: "#FF5733",
-  };
-
   const toggleLegend = () => {
     setPieChartOptions((prevOptions) => ({
       ...prevOptions,
-      options: {
-        ...prevOptions.options,
-        legend: {
-          ...prevOptions.options.legend,
-          show: !showLegend,
+      pieData: {
+        ...prevOptions.pieData,
+        options: {
+          ...prevOptions.pieData.options,
+          legend: { ...prevOptions.pieData.options.legend, show: !showLegend },
         },
       },
     }));
@@ -91,7 +104,7 @@ function TotalSale() {
     <div>
       <div className="flex justify-center">
         <table className="table-auto border-collapse border border-gray-300 my-10 w-[90%]">
-          <thead className="bg-slate-600 text-white ">
+          <thead className="bg-slate-600 text-white">
             <tr>
               <th className="px-4 py-5">تاریخ</th>
               <th className="px-4 py-5">فروش روزانه</th>
@@ -102,44 +115,49 @@ function TotalSale() {
               <th className="px-4 py-5">روش پرداخت</th>
             </tr>
           </thead>
-          <tbody className="">
-            {data.map((record, index) => (
+          <tbody>
+            {dailySalesData.map((record, index) => (
               <tr key={index} className="odd:bg-white even:bg-gray-200">
                 <td className="border border-gray-300 px-4 py-2">
-                  {record["تاریخ"]}
+                  {new Date(record[0]).toLocaleDateString("fa-IR", {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
-                  {record["فروش روزانه"]}
+                  {record[1]}
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
-                  {record["تعداد تراکنش‌ها"]}
+                  {totalTransactions}
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
-                  {record["میانگین ارزش تراکنش"]}
+                  {avgTransactionValue}
+                </td>
+                <td className="border border-gray-300 px-4 py-2">0</td>
+                <td className="border border-gray-300 px-4 py-2">
+                  Not Available
                 </td>
                 <td className="border border-gray-300 px-4 py-2">
-                  {record["تخفیف کل"]}
-                </td>
-                <td className="border border-gray-300 px-4 py-2">
-                  {record["پرفروش‌ترین محصول"]}
-                </td>
-                <td className="border border-gray-300 px-4 py-2">
-                  {record["روش پرداخت"]}
+                  Not Available
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
       <div className="flex flex-row justify-evenly mb-5">
         <div className="bg-white border border-slate-300 shadow-md flex items-center rounded-md p-2">
-          {data.length > 0 && <Chart {...dailyData} />}
+          {pieChartOptions?.dailyData && (
+            <Chart {...pieChartOptions.dailyData} />
+          )}
         </div>
-        <div className="flex flex-col bg-white p-10 border border-slate-300 shadow-md  items-center rounded-md">
-          {pieChartOptions && (
+        <div className="flex flex-col bg-white p-10 border border-slate-300 shadow-md items-center rounded-md">
+          {pieChartOptions?.pieData && (
             <ApexCharts
-              options={pieChartOptions.options}
-              series={pieChartOptions.series}
+              options={pieChartOptions.pieData.options}
+              series={pieChartOptions.pieData.series}
               type="pie"
               height="300"
               width="600"

@@ -1,25 +1,33 @@
 import os
-# Disable Streamlit's watcher to avoid torch.classes errors
-os.environ["STREAMLIT_WATCHER_TYPE"] = "none"
-
 import cv2
 import streamlit as st
 from ultralytics import YOLO
-from collections import defaultdict
+import torch
 import json
+import re
+import math
+from streamlit_autorefresh import st_autorefresh
 
-# بارگذاری مدل YOLO
-yolo = YOLO('best.pt')
 
-# تنظیمات مربوط به زمان ماندگاری اشیاء
-FRAME_LIFETIME = 10
 
-# مقداردهی اولیه وضعیت‌های session_state در اولین اجرا
+# غیرفعال کردن watcher استریملت (برای جلوگیری از برخی ارور‌های torch)
+os.environ["STREAMLIT_WATCHER_TYPE"] = "none"
+
+# تعیین دستگاه: استفاده از GPU (cuda:0) در صورت موجود بودن
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
+st.write(f"Running on device: {device}")
+
+# بارگذاری مدل YOLO روی دستگاه مشخص‌شده (GPU یا CPU)
+yolo = YOLO('best.pt', device=device)
+
+# تنظیمات مربوط به ردیابی اشیاء
+MISS_THRESHOLD = 3  # تعداد فریم‌هایی که شیء نباید دیده شود تا ردیابی آن خاتمه یابد
+
 def initialize_session():
     if "detected_objects" not in st.session_state:
-        st.session_state.detected_objects = {}
-    if "active_objects" not in st.session_state:
-        st.session_state.active_objects = defaultdict(int)
+        st.session_state.detected_objects = {}  # دیکشنری نهایی محصولات
+    if "tracks" not in st.session_state:
+        st.session_state.tracks = []  # لیست اشیاء در حال ردیابی
     if "stop_processing" not in st.session_state:
         st.session_state.stop_processing = False
     if "purchase_submitted" not in st.session_state:
@@ -28,8 +36,11 @@ def initialize_session():
         st.session_state.frame = None
     if "camera" not in st.session_state:
         st.session_state.camera = None
+    if "phone_number" not in st.session_state:
+        st.session_state.phone_number = ""
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = "input"  # حالت‌های ممکن: "input" یا "operation"
 
-# CSS سفارشی برای زیباتر کردن ظاهر برنامه
 def add_custom_css():
     st.markdown(
         """
@@ -79,11 +90,56 @@ def add_custom_css():
         unsafe_allow_html=True,
     )
 
-# پردازش فریم جدید از دوربین
-def process_new_frame():
-    detected_objects = st.session_state.detected_objects
-    active_objects = st.session_state.active_objects
+def validate_phone_number(phone):
+    pattern = r"^09\d{9}$"  # الگوی پیشنهادی برای شماره تماس
+    return re.match(pattern, phone)
 
+def update_tracks(detections):
+    tracks = st.session_state.tracks
+    for track in tracks:
+        track["updated"] = False
+
+    threshold_distance = 50  # آستانه فاصله (بر حسب پیکسل)
+
+    for detection in detections:
+        d_bbox = detection["bbox"]
+        d_center = ((d_bbox[0] + d_bbox[2]) / 2, (d_bbox[1] + d_bbox[3]) / 2)
+        best_match = None
+        best_distance = threshold_distance
+        for track in tracks:
+            t_bbox = track["bbox"]
+            t_center = ((t_bbox[0] + t_bbox[2]) / 2, (t_bbox[1] + t_bbox[3]) / 2)
+            dist = math.sqrt((d_center[0] - t_center[0])**2 + (d_center[1] - t_center[1])**2)
+            if dist < best_distance:
+                best_distance = dist
+                best_match = track
+        if best_match is not None:
+            best_match["bbox"] = d_bbox
+            best_match["labels"].append(detection["label"])
+            best_match["missed"] = 0
+            best_match["updated"] = True
+        else:
+            new_track = {
+                "bbox": d_bbox,
+                "labels": [detection["label"]],
+                "missed": 0,
+                "updated": True
+            }
+            tracks.append(new_track)
+
+    removal_list = []
+    for track in tracks:
+        if not track.get("updated", False):
+            track["missed"] += 1
+        if track["missed"] >= MISS_THRESHOLD:
+            most_common_label = max(set(track["labels"]), key=track["labels"].count)
+            st.session_state.detected_objects[most_common_label] = st.session_state.detected_objects.get(most_common_label, 0) + 1
+            removal_list.append(track)
+    for track in removal_list:
+        if track in tracks:
+            tracks.remove(track)
+
+def process_new_frame():
     cap = st.session_state.camera
     if cap is None:
         cap = cv2.VideoCapture(0)
@@ -99,102 +155,104 @@ def process_new_frame():
         return
 
     results = yolo(frame, imgsz=640)
-    current_objects = set()
-
+    detections = []
     for result in results:
         boxes = result.boxes
         names = result.names
-
         for box in boxes:
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+            coords = box.xyxy[0].cpu().numpy().tolist()  # [x1, y1, x2, y2]
             label = names[int(box.cls)]
-            current_objects.add(label)
-            cv2.putText(frame, label, (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            detections.append({"bbox": coords, "label": label})
+            x1, y1, x2, y2 = map(int, coords)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+            cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-    for obj in current_objects:
-        if obj not in active_objects:
-            detected_objects[obj] = detected_objects.get(obj, 0) + 1
-        active_objects[obj] = FRAME_LIFETIME
-
-    to_remove = [obj for obj in active_objects if obj not in current_objects]
-    for obj in to_remove:
-        active_objects[obj] -= 1
-        if active_objects[obj] <= 0:
-            del active_objects[obj]
-
+    update_tracks(detections)
     st.session_state.frame = frame
 
-# نمایش لیست نهایی اشیاء شناسایی‌شده
 def show_final_list():
     st.subheader("🛠️ لیست نهایی اشیاء شناسایی‌شده:")
     detected_objects = st.session_state.detected_objects
 
     for obj, count in list(detected_objects.items()):
-        if count == 0:
-            del detected_objects[obj]
-        else:
-            cols = st.columns([1, 1, 5])
-            with cols[0]:
-                if st.button("➕", key=f"increase_{obj}"):
-                    detected_objects[obj] += 1
-            with cols[1]:
-                if st.button("➖", key=f"decrease_{obj}"):
-                    detected_objects[obj] = max(0, detected_objects[obj] - 1)
-            with cols[2]:
-                st.write(f"**{obj}**: {detected_objects[obj]} بار")
-
+        cols = st.columns([1, 1, 5])
+        with cols[0]:
+            if st.button("➕", key=f"increase_{obj}"):
+                detected_objects[obj] += 1
+        with cols[1]:
+            if st.button("➖", key=f"decrease_{obj}"):
+                detected_objects[obj] = max(0, detected_objects[obj] - 1)
+        with cols[2]:
+            st.write(f"**{obj}**: {detected_objects[obj]} بار")
+    
     st.markdown("<hr>", unsafe_allow_html=True)
+    
     if st.button("📦 ثبت خرید", key="submit_purchase"):
         st.session_state.purchase_submitted = True
         filtered_data = {k: v for k, v in detected_objects.items() if v > 0}
-        purchase_data = json.dumps(filtered_data, ensure_ascii=False, indent=2)
-        st.text_area("🔗 داده‌های ارسال‌شده (JSON):", purchase_data, height=250)
-        st.success("✅ خرید ثبت شد! برنامه متوقف شد.")
+        purchase_data = {
+            "phone_number": st.session_state.phone_number,
+            "products": filtered_data
+        }
+        purchase_data_json = json.dumps(purchase_data, ensure_ascii=False, indent=2)
+        st.text_area("🔗 داده‌های ارسال‌شده (JSON):", purchase_data_json, height=250)
+        st.success("✅ خرید ثبت شد! برنامه متوقف می‌شود.")
         st.session_state.stop_processing = True
         if st.session_state.camera:
             st.session_state.camera.release()
-        st.experimental_rerun()
-
+            st.session_state.camera = None
+        st.stop()
+    
     if st.button("🔄 شروع دوباره", key="reset_button"):
         st.session_state.detected_objects = {}
-        st.session_state.active_objects = defaultdict(int)
+        st.session_state.tracks = []
         st.session_state.stop_processing = False
         st.session_state.purchase_submitted = False
         if st.session_state.camera:
             st.session_state.camera.release()
         st.session_state.camera = None
-        st.experimental_rerun()
+        st.session_state.current_page = "input"
+        st.stop()
 
-# رابط اصلی برنامه
 def streamlit_app():
     st.set_page_config(page_title="شناسایی اشیاء", layout="wide")
     initialize_session()
     add_custom_css()
-
-    st.title("🌟 YOLOv11 شناسایی محصولات با")
-    st.write(".برای شناسایی محصولات از دوربین استفاده می‌کند YOLOv11 این اپلیکیشن با")
-
+    
+    # صفحه ورود شماره تماس
+    if st.session_state.current_page == "input":
+        st.title("ورود شماره تماس")
+        st.session_state.phone_number = st.text_input("شماره تماس خود را وارد کنید:", value=st.session_state.phone_number)
+        if st.session_state.phone_number.strip() != "":
+            if not validate_phone_number(st.session_state.phone_number.strip()):
+                st.error("⚠️ شماره تماس وارد شده معتبر نیست. لطفاً از فرمت صحیح (مثلاً: 09123456789) استفاده کنید.")
+            else:
+                if st.button("🎥 شروع عملیات"):
+                    st.session_state.current_page = "operation"
+                    st.session_state.stop_processing = False
+                    st.stop()
+        else:
+            st.info("لطفاً شماره تماس خود را وارد کنید.")
+        st.stop()
+    
+    # صفحه عملیات (تشخیص محصولات)
+    st.title("🌟 YOLOv11 شناسایی محصولات")
     col1, col2 = st.columns([1, 1])
     with col1:
-        if not st.session_state.stop_processing:
-            if st.button("🎥 شروع شناسایی"):
-                st.session_state.stop_processing = False
-
+        if st.button("🎥 شروع شناسایی", key="start_detection"):
+            st.session_state.stop_processing = False
     with col2:
-        if not st.session_state.stop_processing:
-            if st.button("⛔ پایان عملیات"):
-                st.session_state.stop_processing = True
-        if st.session_state.stop_processing and st.session_state.camera:
-            st.session_state.camera.release()
-            st.session_state.camera = None
+        if st.button("⛔ پایان عملیات", key="end_detection"):
+            st.session_state.stop_processing = True
+            if st.session_state.camera:
+                st.session_state.camera.release()
+                st.session_state.camera = None
 
     if not st.session_state.stop_processing:
         process_new_frame()
-        stframe = st.empty()
         if st.session_state.frame is not None:
-            stframe.image(cv2.cvtColor(st.session_state.frame, cv2.COLOR_BGR2RGB), channels="RGB")
-        st.experimental_rerun()
+            st.image(cv2.cvtColor(st.session_state.frame, cv2.COLOR_BGR2RGB), channels="RGB")
+        st_autorefresh(interval=100, key="video_refresh")
     else:
         show_final_list()
 

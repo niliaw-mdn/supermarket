@@ -107,14 +107,14 @@ function Allproduct({ searchQuery = "" }) {
   };
 
   const deleteProduct = async (productId) => {
-    if (!window.confirm("Are you sure you want to delete this product?"))
+    if (!window.confirm("آیا مطمئنید میخواهید این محصول را حذف کنید؟"))
       return;
     setLoading(true);
     try {
       await axios.post("http://localhost:5000/deleteProduct", {
         product_id: productId,
       });
-      toast.success("Product deleted successfully!");
+      toast.success("محصول با موفقیت حدف شد!");
       setProducts((prev) => prev.filter((p) => p.product_id !== productId));
     } catch (error) {
       console.error("Error deleting product:", error);
@@ -289,10 +289,10 @@ function Allproduct({ searchQuery = "" }) {
               </button>
               {filters.isBrandOpen && (
                 <div className="w-full bg-white shadow-lg ring-1 ring-black ring-opacity-5 p-4">
-                  <div className="flex flex-col items-center">
-                    <ul className="py-1 text-md divide-y-2 text-gray-700 text-center">
-                      {["brand1", "brand2", "brand3", "brand4"].map((brand) => (
-                        <li key={brand}>
+                  <div className="flex flex-col">
+                    <ul className="py-1 text-md divide-y-2 text-gray-700 text-right">
+                      {["شیبا", "مزمز", "مینو", "تکدانه", "وایت", "بایودنت", "مادر"].map((brand) => (
+                        <li className="py-2" key={brand}>
                           <input
                             type="checkbox"
                             checked={filters.selectedBrands.includes(brand)}

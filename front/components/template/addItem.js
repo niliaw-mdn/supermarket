@@ -143,7 +143,7 @@ export default function AddItem() {
       setIsLoading(false);
 
       if (res.ok) {
-        alert(`✅ Product added successfully! Product ID: ${data.product_id}`);
+        alert(`✅ محصول شما با موفقیت ثبت شد`);
         setFormData({
           name: "",
           uom_id: "",
