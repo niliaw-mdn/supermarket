@@ -2,7 +2,7 @@ import React from "react";
 
 function Profile() {
   return (
-    <div className="grid mt-[-300px] grid-cols-[58%,30%] gap-32 mx-10">
+    <div className="grid mt-36 grid-cols-[58%,30%] gap-32 mx-10">
       <div className="flex flex-col bg-white rounded-md border border-slate-300 shadow-md">
         <div className="flex flex-row">
           <div className="flex flex-col p-8">

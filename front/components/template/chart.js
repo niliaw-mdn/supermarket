@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 
 const ApexCharts = dynamic(() => import("react-apexcharts"), { ssr: false });
@@ -47,6 +47,16 @@ const Chart = ({ title, categories, data, color }) => {
       color: color,
     },
   ]);
+
+  useEffect(() => {
+    setChartSeries([
+      {
+        name: title,
+        data: data,
+        color: color,
+      },
+    ]);
+  }, [title, categories, data, color]);
 
   return (
     <div className="w-full">

@@ -63,61 +63,61 @@ const ProductsTable = () => {
 
   return (
     <div className="container mx-auto p-4">
-      <table className="table-auto w-full border-collapse border border-gray-200">
+      <table className="table-auto font-light w-full">
         <thead>
-          <tr>
-            <th className="border border-gray-200 px-4 py-2">آمار</th>
-            <th className="border border-gray-200 px-4 py-2">مقدار</th>
-            <th className="border border-gray-200 px-4 py-2"></th>
+          <tr className="h-12 bg-gray-100">
+            <th className="font-light">آمار</th>
+            <th className="font-light">مقدار</th>
+            <th className="font-light"></th>
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td className="border border-gray-200 px-4 py-2">سود کل</td>
-            <td className="border border-gray-200 px-4 py-2">{statistics.totalProfit}</td>
-            <td className="border border-gray-200 px-4 py-2 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
+          <tr className=" border-b border-b-gray-200">
+            <td className="py-2 text-center px-3">سود کل</td>
+            <td className="py-2 text-center px-3">{statistics.totalProfit}</td>
+            <td className="py-2 text-center px-3 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
           </tr>
-          <tr>
-            <td className="border border-gray-200 px-4 py-2">میانگین تخفیف</td>
-            <td className="border border-gray-200 px-4 py-2">{statistics.averageDiscount}</td>
-            <td className="border border-gray-200 px-4 py-2 flex flex-row text-red-700">+<PiChartLineDownBold className="text-red-700" size={30}/></td>
+          <tr className=" border-b border-b-gray-200">
+            <td className="py-2 text-center px-3">میانگین تخفیف</td>
+            <td className="py-2 text-center px-3">{statistics.averageDiscount}</td>
+            <td className="py-2 text-center px-3 flex flex-row text-red-700">+<PiChartLineDownBold className="text-red-700" size={30}/></td>
           </tr>
-          <tr>
-            <td className="border border-gray-200 px-4 py-2">تعداد محصولات با سود بیشتر از1000 تومان</td>
-            <td className="border border-gray-200 px-4 py-2">{statistics.profitAbove1000}</td>
-            <td className="border border-gray-200 px-4 py-2 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
+          <tr className=" border-b border-b-gray-200">
+            <td className="py-2 text-center px-3">تعداد محصولات با سود بیشتر از1000 تومان</td>
+            <td className="py-2 text-center px-3">{statistics.profitAbove1000}</td>
+            <td className="py-2 text-center px-3 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
           </tr>
-          <tr>
-            <td className="border border-gray-200 px-4 py-2">حداکثر سود</td>
-            <td className="border border-gray-200 px-4 py-2">{statistics.maxProfit}</td>
-            <td className="border border-gray-200 px-4 py-2 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
+          <tr className=" border-b border-b-gray-200">
+            <td className="py-2 text-center px-3">حداکثر سود</td>
+            <td className="py-2 text-center px-3">{statistics.maxProfit}</td>
+            <td className="py-2 text-center px-3 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
           </tr>
-          <tr>
-            <td className="border border-gray-200 px-4 py-2">حداقل سود</td>
-            <td className="border border-gray-200 px-4 py-2">{statistics.minProfit}</td>
-            <td className="border border-gray-200 px-4 py-2 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
+          <tr className=" border-b border-b-gray-200">
+            <td className="py-2 text-center px-3">حداقل سود</td>
+            <td className="py-2 text-center px-3">{statistics.minProfit}</td>
+            <td className="py-2 text-center px-3 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
           </tr>
-          <tr>
-            <td className="border border-gray-200 px-4 py-2">تعداد محصولات با سود منفی</td>
-            <td className="border border-gray-200 px-4 py-2">{statistics.negativeProfitProducts}</td>
-            <td className="border border-gray-200 px-4 py-2 flex flex-row text-red-700">+<PiChartLineDownBold className="text-red-700" size={30}/></td>
+          <tr className=" border-b border-b-gray-200">
+            <td className="py-2 text-center px-3">تعداد محصولات با سود منفی</td>
+            <td className="py-2 text-center px-3">{statistics.negativeProfitProducts}</td>
+            <td className="py-2 text-center px-3 flex flex-row text-red-700">+<PiChartLineDownBold className="text-red-700" size={30}/></td>
           </tr>
-          <tr>
-            <td className="border border-gray-200 px-4 py-2">تعداد کل واحدهای فروخته شده</td>
-            <td className="border border-gray-200 px-4 py-2">{statistics.totalUnitsSold}</td>
-            <td className="border border-gray-200 px-4 py-2 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
+          <tr className=" border-b border-b-gray-200">
+            <td className="py-2 text-center px-3">تعداد کل واحدهای فروخته شده</td>
+            <td className="py-2 text-center px-3">{statistics.totalUnitsSold}</td>
+            <td className="py-2 text-center px-3 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
+
+          </tr>
+          <tr className=" border-b border-b-gray-200">
+            <td className="py-2 text-center px-3">بیشترین تعداد واحد فروخته شده</td>
+            <td className="py-2 text-center px-3">{statistics.maxUnitsSold}</td>
+            <td className="py-2 text-center px-3 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
 
           </tr>
           <tr>
-            <td className="border border-gray-200 px-4 py-2">بیشترین تعداد واحد فروخته شده</td>
-            <td className="border border-gray-200 px-4 py-2">{statistics.maxUnitsSold}</td>
-            <td className="border border-gray-200 px-4 py-2 flex flex-row text-green-600">+<PiChartLineUpBold className="text-green-600" size={30}/></td>
-
-          </tr>
-          <tr>
-            <td className="border border-gray-200 px-4 py-2">کمترین تعداد واحد فروخته شده</td>
-            <td className="border border-gray-200 px-4 py-2">{statistics.minUnitsSold}</td>
-            <td className="border border-gray-200 px-4 py-2 flex flex-row text-red-700">+<PiChartLineDownBold className="text-red-700" size={30}/></td>
+            <td className="py-2 text-center px-3">کمترین تعداد واحد فروخته شده</td>
+            <td className="py-2 text-center px-3">{statistics.minUnitsSold}</td>
+            <td className="py-2 text-center px-3 flex flex-row text-red-700">+<PiChartLineDownBold className="text-red-700" size={30}/></td>
           </tr>
         </tbody>
       </table>

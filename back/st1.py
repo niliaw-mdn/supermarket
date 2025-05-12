@@ -116,6 +116,7 @@ def set_background_color():
 set_background_color()
 add_custom_css()  
 
+
 # YOLO model initialization
 yolo = YOLO('best.pt')
 
@@ -219,22 +220,62 @@ def show_final_list():
                 st.write(f"**{obj}**: {detected_objects[obj]} بار")
 
     st.markdown("<hr>", unsafe_allow_html=True)
+
     if st.button("📦 ثبت خرید", key="submit_purchase", help="ثبت لیست خرید نهایی"):
-        st.session_state.purchase_submitted = True
+       st.session_state.purchase_submitted = True
+       filtered_data = {k: v for k, v in detected_objects.items() if v > 0}
+       purchase_data = json.dumps(filtered_data, ensure_ascii=False, indent=2)
+       st.text_area("🔗 داده‌های ارسال‌شده (JSON):", purchase_data, height=250)
+       st.success("✅ خرید ثبت شد! برنامه متوقف شد.")
+       st.stop()
+
+
+    if st.session_state.purchase_submitted:
+        st.markdown("### 🧾 فاکتور خرید نهایی")
         filtered_data = {k: v for k, v in detected_objects.items() if v > 0}
-        purchase_data = json.dumps(filtered_data, ensure_ascii=False, indent=2)
-        st.text_area("🔗 داده‌های ارسال‌شده (JSON):", purchase_data, height=250)
-        st.success("✅ خرید ثبت شد! برنامه متوقف شد.")
-        st.stop()
+
+        if filtered_data:
+            invoice_rows = [{"نام محصول": k, "تعداد": v} for k, v in filtered_data.items()]
+            st.table(invoice_rows)
+            st.success("✅ خرید ثبت شد!")
+        else:
+            st.warning("هیچ محصولی برای نمایش وجود ندارد.")
 
     if st.button("🔄 شروع دوباره", key="reset_button", help="شروع یک عملیات جدید"):
         st.session_state.detected_objects = {}
         st.session_state.active_objects = defaultdict(int)
         st.session_state.stop_processing = False
+        st.session_state.purchase_submitted = False
+
+
+def show_invoice_modal():
+    st.markdown("### 🧾 فاکتور خرید نهایی")
+    st.markdown('<div style="background-color: white; padding: 20px; border-radius: 10px;">', unsafe_allow_html=True)
+    detected_objects = st.session_state.detected_objects
+    filtered_data = {k: v for k, v in detected_objects.items() if v > 0}
+
+    if not filtered_data:
+        st.warning("هیچ کالایی ثبت نشده است.")
+    else:
+        st.table([{"نام کالا": k, "تعداد": v} for k, v in filtered_data.items()])
+        st.success("✅ خرید شما با موفقیت ثبت شد!")
+
+    if st.button("🔄 شروع دوباره", key="reset_button"):
+        st.session_state.purchase_submitted = False
+        st.session_state.detected_objects = {}
+        st.session_state.active_objects = defaultdict(int)
+        st.session_state.stop_processing = False
+        st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 def streamlit_app():
-    st.title("🌟 YOLOv11 شناسایی محصولات با")
+    if st.session_state.purchase_submitted:
+        show_invoice_modal()
+        return
 
+    st.title("سیستم هوشمند شناسایی محصولات🛒")
     col1, col2 = st.columns([1, 1])
 
     with col1:
@@ -252,6 +293,7 @@ def streamlit_app():
 
     if st.session_state.stop_processing:
         show_final_list()
+
 
 if __name__ == "__main__":
     streamlit_app()

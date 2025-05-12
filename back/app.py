@@ -1004,20 +1004,28 @@ def get_category(connection, cursor):
     try:
         if not connection.is_connected():
             connection.reconnect(attempts=3, delay=2)
-        cursor.execute("SELECT * FROM category")
-        categories = cursor.fetchall()
 
-        response = [{'category_id': row[0], 'category_name': row[1]} for row in categories]
+        cursor.execute("""
+            SELECT c.category_id, c.category_name, COUNT(p.product_id) AS product_count
+            FROM category c
+            LEFT JOIN product p ON c.category_id = p.category_id
+            GROUP BY c.category_id, c.category_name
+        """)
+
+        response = [
+            {
+                'category_id': row[0],
+                'category_name': row[1],
+                'product_count': row[2]
+            }
+            for row in cursor.fetchall()
+        ]
 
         cursor.close()
-
         return jsonify(response)
     
     except mysql.connector.Error as err:
         return jsonify({'error': str(err)}), 500
-
-
-
 
 
 
