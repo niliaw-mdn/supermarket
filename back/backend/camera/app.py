@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 
-model = YOLO('best.pt')
+model = YOLO('yolov8n.pt')
 box_annotator = sv.BoxAnnotator()
 labels_annotator = sv.LabelAnnotator()
 camera = cv2.VideoCapture(0)
@@ -51,7 +51,7 @@ def generate_frames():
     global stop_camera, start_time
 
     while True:
-        if stop_camera or (time.time() - start_time > 20):  
+        if stop_camera or (time.time() - start_time > 30):  
             print("Stopping the camera after 10 seconds...")
             break
 

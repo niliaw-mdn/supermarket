@@ -1,5 +1,5 @@
 import cv2
-from flask import Flask, jsonify, request, send_from_directory, render_template_string
+from flask import Flask, jsonify, redirect, request, send_from_directory, render_template_string
 import mysql.connector
 from flask_cors import CORS
 from functools import wraps
@@ -16,6 +16,8 @@ import threading
 
 from datetime import datetime
 
+import signal
+
 app = Flask(__name__)
 CORS(app)
 
@@ -23,12 +25,13 @@ CORS(app)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 NEW_PRODUCT_IMG = os.path.join(BASE_DIR, 'new_product_img')
+CUSTOMER_IMAGE = os.path.join(BASE_DIR, 'customer_image')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(NEW_PRODUCT_IMG, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['NEW_PRODUCT_IMG'] = NEW_PRODUCT_IMG
 
-app.config['CUSTOMER_IMAGE'] = '\back\customer_image'
+app.config['CUSTOMER_IMAGE'] = CUSTOMER_IMAGE
 
 #  پوشه ذخیره تصاویر محصولات برای ترین
 output_dir = 'new_product_img'
@@ -1172,48 +1175,24 @@ def get_all_orders(connection, cursor):
 
 
 
-
+# راه‌اندازی Streamlit پس از رسیدن به مسیر /st1
 @app.route('/st1')
-def st1():
-    global streamlit_proc, timer
+def start_streamlit():
+    # اجرای Streamlit به‌عنوان پروسس فرعی
+    subprocess.Popen(['streamlit', 'run', 'st1.py'])
+    # ریدایرکت به رابط Streamlit (به پورت پیش‌فرض 8501)
+    return redirect("http://localhost:8501", code=302)
 
-    if streamlit_proc is None or streamlit_proc.poll() is not None:
-        streamlit_proc = subprocess.Popen(
-            ["streamlit", "run", "st1.py", "--server.port=8501"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        timer = threading.Timer(300, lambda: streamlit_proc.kill())
-        timer.start()
-
-    html = """
-    <!doctype html>
-    <html>
-      <head><meta charset="utf-8"><title>شروع Streamlit</title></head>
-      <body>
-        <script>
-          window.open("http://localhost:8501", "_blank", "resizable=yes,width=1200,height=800");
-        </script>
-        <p>✅ برنامه در پنجره جدید باز شد. لطفاً در ۵ دقیقه خرید خود را ثبت کنید.</p>
-      </body>
-    </html>
-    """
-    return render_template_string(html)
 
 @app.route('/submit', methods=['POST'])
 def submit():
-    global streamlit_proc, timer
-
     data = request.get_json()
-    print("📥 داده‌های دریافتی:", data)
+    print("لیست نهایی خرید دریافت شد:", data)
+    # در اینجا می‌توانید داده را ذخیره یا پردازش کنید
+    return "OK", 200
 
-    if timer:
-        timer.cancel()
-    if streamlit_proc:
-        streamlit_proc.kill()
-        streamlit_proc = None
-
-    return jsonify({"status": "success", "received_data": data}), 200
+if __name__ == '__main__':
+    app.run(port=5000, debug=True)
 
 
 
@@ -1920,15 +1899,18 @@ def most_popular_categories(connection, cursor):
         sql = """
         SELECT c.category_id, c.category_name, COUNT(od.order_id) AS order_count
         FROM order_details od
-        JOIN categories c ON od.category_id = c.category_id
+        JOIN products p ON od.product_id = p.product_id
+        JOIN categories c ON p.category_id = c.category_id
         GROUP BY c.category_id, c.category_name
         ORDER BY order_count DESC
         """
         cursor.execute(sql)
-        result = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        result = [dict(zip(columns, row)) for row in cursor.fetchall()]
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
 
 # 15. API: تعداد سفارشات در 30 روز گذشته
 @app.route("/stats/orders_last_30_days", methods=["GET"])
@@ -2262,13 +2244,25 @@ def weekly_sales_trend(connection, cursor):
 @with_db_connection
 def monthly_sales_growth(connection, cursor):
     try:
-        sql_current = "SELECT IFNULL(SUM(total), 0) AS current_sales FROM orders WHERE MONTH(date_time)=MONTH(CURDATE()) AND YEAR(date_time)=YEAR(CURDATE())"
+        sql_current = """
+        SELECT IFNULL(SUM(total), 0) AS current_sales
+        FROM orders
+        WHERE date_time IS NOT NULL
+        AND MONTH(date_time)=MONTH(CURDATE())
+        AND YEAR(date_time)=YEAR(CURDATE())
+        """
         cursor.execute(sql_current)
-        current_sales = cursor.fetchone()["current_sales"]
+        current_sales = cursor.fetchone()[0]
         
-        sql_prev = "SELECT IFNULL(SUM(total), 0) AS previous_sales FROM orders WHERE MONTH(date_time)=MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(date_time)=YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))"
+        sql_prev = """
+        SELECT IFNULL(SUM(total), 0) AS previous_sales
+        FROM orders
+        WHERE date_time IS NOT NULL
+        AND MONTH(date_time)=MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+        AND YEAR(date_time)=YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+        """
         cursor.execute(sql_prev)
-        previous_sales = cursor.fetchone()["previous_sales"]
+        previous_sales = cursor.fetchone()[0]
 
         growth_rate = ((current_sales - previous_sales) / previous_sales * 100) if previous_sales else None
         return jsonify({
@@ -2278,6 +2272,7 @@ def monthly_sales_growth(connection, cursor):
         })
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
 
 # 38. API: تعداد سفارش‌ها و درآمد بر اساس دسته‌ب
 
