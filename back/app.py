@@ -18,6 +18,8 @@ from datetime import datetime, date
 
 import signal
 
+from statistics import median
+
 app = Flask(__name__)
 CORS(app)
 
@@ -966,7 +968,7 @@ def delete_product(connection, cursor):
 
     try:
         # First, delete related records in order_details
-        cursor.execute("DELETE FROM order_details WHERE product_id = %s", (product_id,))
+        cursor.execute("DELETE FROM order_detale WHERE product_id = %s", (product_id,))
         
         # Now, delete the product itself
         cursor.execute("DELETE FROM product WHERE product_id = %s", (product_id,))
@@ -1028,8 +1030,6 @@ def get_uom(connection, cursor):
 
 # T
 # return all category
-from flask import Response
-import json
 
 @app.route('/getcategory', methods=['GET'])
 @with_db_connection
@@ -1092,27 +1092,28 @@ def insert_order_api(connection, cursor):
         return jsonify({'error': 'Invalid JSON data'}), 400
 
     # اعتبارسنجی اولیه‌ی فیلدهای اصلی
-    if 'customer_name' not in data or 'total' not in data or 'order_details' not in data:
+    if 'customer_name' not in data or 'total' not in data or 'order_detale' not in data:
         return jsonify({'error': 'Missing required fields'}), 400
 
     cursor = connection.cursor()
     try:
         # ۱) درج در جدول orders
         insert_order_sql = """
-            INSERT INTO orders (customer_name, total, date_time, customer_phone)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO orders (customer_name, total, date_time, payment_method_id, customer_phone )
+            VALUES (%s, %s, %s, %s, %s)
         """
         cursor.execute(insert_order_sql, (
             data['customer_name'],
             data['total'],
             datetime.now(),
+            data['payment_method_id'],
             data['customer_phone']
         ))
         order_id = cursor.lastrowid
 
         # ۲) برای هر جزئیات سفارش: بررسی موجودی و آماده‌سازی دیتای batch
         insert_details_sql = """
-            INSERT INTO order_details (order_id, product_id, quantity, total_price, price_per_unit, category_id)
+            INSERT INTO order_detale (order_id, product_id, quantity, total_price, price_per_unit, category_id)
             VALUES (%s, %s, %s, %s, %s, %s)
         """
         details_params = []
@@ -1123,7 +1124,7 @@ def insert_order_api(connection, cursor):
             
             # --- بررسی موجودی محصول ---
             cursor.execute(
-                "SELECT available_quantity FROM products WHERE product_id = %s",
+                "SELECT available_quantity FROM product WHERE product_id = %s",
                 (item['product_id'],)
             )
             row = cursor.fetchone()
@@ -1170,43 +1171,50 @@ def insert_order_api(connection, cursor):
 @with_db_connection
 def get_all_orders(connection, cursor):
     try:
-        cursor = connection.cursor()
-
-        # ۱) واکشی همه‌ی سفارش‌ها
-        cursor.execute("SELECT order_id, customer_name, total, date_time, customer_phone FROM orders")
+        # واکشی همه‌ی سفارش‌ها
+        cursor.execute("""
+            SELECT order_id, customer_name, total, date_time, customer_phone
+            FROM orders
+        """)
         orders = [{
-            'order_id': oid,
+            'order_id':     oid,
             'customer_name': cname,
-            'total': total,
-            'datetime': dt,
+            'total':         total,
+            'datetime':      dt,
             'customer_phone': cp
         } for oid, cname, total, dt, cp in cursor.fetchall()]
 
-        # ۲) برای هر سفارش، واکشی جزئیاتش و اضافه کردن به دیکشنری سفارش
+        # آماده‌سازی کوئری جزئیات سفارش‌ها، با prefix زدن p.category_id
         details_sql = """
-            SELECT od.quantity, od.total_price,
-                    p.name AS product_name, p.price_per_unit, category_id
-            FROM order_details od
-            LEFT JOIN products p ON od.product_id = p.product_id
+            SELECT
+                od.quantity,
+                od.total_price,
+                p.name           AS product_name,
+                p.price_per_unit AS price_per_unit,
+                p.category_id    AS category_id
+            FROM order_detale od
+            LEFT JOIN product p
+              ON od.product_id = p.product_id
             WHERE od.order_id = %s
         """
+
+        # برای هر سفارش، جزئیاتش را می‌گیریم
         for order in orders:
             cursor.execute(details_sql, (order['order_id'],))
             order['order_details'] = [{
-                'quantity': qty,
-                'total_price': price,
-                'product_name': pname,
+                'quantity':       qty,
+                'total_price':    price,
+                'product_name':   pname,
                 'price_per_unit': ppu,
-                'category_id' : ci
+                'category_id':    ci
             } for qty, price, pname, ppu, ci in cursor.fetchall()]
 
-        cursor.close()
         return jsonify(orders), 200
 
     except mysql.connector.Error as err:
-        # در صورت هر خطای دیتابیس، rollback و پاسخ ۵۰۰
         connection.rollback()
         return jsonify({'error': str(err)}), 500
+
 
 
 
@@ -1232,8 +1240,6 @@ def submit():
     # در اینجا می‌توانید داده را ذخیره یا پردازش کنید
     return "OK", 200
 
-if __name__ == '__main__':
-    app.run(port=5000, debug=True)
 
 
 
@@ -1265,7 +1271,7 @@ def calculate_total_weight(connection, cursor):
                 quantity = item.get("quantity", 0)
                 
                 # اجرای کوئری برای دریافت اطلاعات محصول با استفاده از product_id
-                sql = "SELECT weight, error_rate_in_weight FROM products WHERE product_id = %s"
+                sql = "SELECT weight, error_rate_in_weight FROM product WHERE product_id = %s"
                 cursor.execute(sql, (product_id,))
                 product = cursor.fetchone()
                 
@@ -1345,7 +1351,7 @@ def update_stock_after_order(connection, cursor):
     order_items = []
     if "orders" in data:
         for order in data["orders"]:
-            if "order_details" not in order:
+            if "order_detale" not in order:
                 return jsonify({"error": "Missing order_details in one of the orders"}), 400
             order_items.extend(order["order_details"])
     elif "order_details" in data:
@@ -1355,7 +1361,7 @@ def update_stock_after_order(connection, cursor):
 
     try:
         update_sql = """
-            UPDATE products
+            UPDATE product
             SET available_quantity = available_quantity - %s
             WHERE product_id = %s
         """
@@ -1368,7 +1374,7 @@ def update_stock_after_order(connection, cursor):
             quantity = item["quantity"]
 
             # بررسی موجودی فعلی محصول
-            select_sql = "SELECT available_quantity FROM products WHERE product_id = %s"
+            select_sql = "SELECT available_quantity FROM product WHERE product_id = %s"
             cursor.execute(select_sql, (product_id,))
             row = cursor.fetchone()
             if row is None:
@@ -1426,12 +1432,11 @@ def insert_customer(connection, cursor):
 
         query = """INSERT INTO customer (
                     customer_name, customer_phone, membership_date, number_of_purchases, total, image_address
-                ) VALUES (%s, %s, %s, %s, %s, %s)"""
+                ) VALUES (%s, %s, NOW(), %s, %s, %s)"""
 
         data = (
             customer['customer_name'],
             customer['customer_phone'],
-            customer['membership_date'],
             customer['number_of_purchases'],
             customer['total'],
             customer['image_address']
@@ -1564,33 +1569,52 @@ def get_customer_info(connection, cursor):
 
 
 # return all products for scrool down
-@app.route('/get_products', methods=['GET'])
-def get_products():
+@app.route("/get_all_productss", methods=["GET"])
+@with_db_connection
+def get_all_productss(connection, cursor):
     """ دریافت تمام نام کالاها """
-    connection = get_db_connection()
-    cursor = connection.cursor()
-    cursor.execute("SELECT name FROM product")
-    products = [row[0] for row in cursor.fetchall()]
-    cursor.close()
-    connection.close()
-    
-    return jsonify({'products': products})
+    try:
+        sql = "SELECT name FROM product"
+        cursor.execute(sql)
+        products = [row[0] for row in cursor.fetchall()]
+    except Exception as e:
+        return jsonify({
+            "error": "خطا در اجرای کوئری",
+            "exception": str(e)
+        }), 500
+    finally:
+        connection.close()
+
+    return jsonify({"products": products})
+
 
 
 
 # return the search result base on type from the bigening the type for your search result
-@app.route('/search_products', methods=['GET'])
-def search_products():
+@app.route("/search_products", methods=["POST"])
+@with_db_connection
+def search_products(connection, cursor):
     """ جستجوی کالاهایی که نامشان با متن وارد شده شروع می‌شود """
-    search_term = request.args.get('query', '')  # دریافت متن جستجو از فرانت
-    connection = get_db_connection()
-    cursor = connection.cursor()
-    cursor.execute("SELECT name FROM product WHERE name LIKE %s", (search_term + '%',))
-    filtered_products = [row[0] for row in cursor.fetchall()]
-    cursor.close()
-    connection.close()
-    
-    return jsonify({'products': filtered_products})
+    data = request.get_json()
+    search_term = data.get("query", "")
+
+    if not search_term:
+        return jsonify({"error": "عبارت جستجو اجباری است"}), 400
+
+    try:
+        sql = "SELECT name FROM product WHERE name LIKE %s"
+        cursor.execute(sql, (search_term + '%',))
+        filtered_products = [row[0] for row in cursor.fetchall()]
+    except Exception as e:
+        return jsonify({
+            "error": "خطا در اجرای کوئری",
+            "exception": str(e)
+        }), 500
+    finally:
+        connection.close()
+
+    return jsonify({"products": filtered_products})
+
 
 
 
@@ -1695,7 +1719,7 @@ def get_order_details(order_id, connection, cursor):
                 od.total_price, 
                 od.ppu, 
                 c.category_name
-            FROM order_details od
+            FROM order_detale od
             JOIN product p ON od.product_id = p.product_id
             JOIN categories c ON od.category_id = c.category_id
             WHERE od.order_id = %s
@@ -1865,7 +1889,7 @@ def top_products(connection, cursor):
     try:
         sql = """
         SELECT od.product_id, p.name, IFNULL(SUM(od.quantity), 0) AS total_quantity 
-        FROM order_details od
+        FROM order_detale od
         JOIN product p ON od.product_id = p.product_id
         GROUP BY od.product_id, p.name
         ORDER BY total_quantity DESC
@@ -1884,7 +1908,7 @@ def product_revenue(connection, cursor):
     try:
         sql = """
         SELECT od.product_id, p.name, IFNULL(SUM(od.total_price), 0) AS product_revenue 
-        FROM order_details od
+        FROM order_detale od
         JOIN product p ON od.product_id = p.product_id
         GROUP BY od.product_id, p.name
         ORDER BY product_revenue DESC
@@ -1902,7 +1926,7 @@ def revenue_by_category(connection, cursor):
     try:
         sql = """
         SELECT c.category_id, c.category_name, IFNULL(SUM(od.total_price), 0) AS category_revenue 
-        FROM order_details od
+        FROM order_detale od
         JOIN categories c ON od.category_id = c.category_id
         GROUP BY c.category_id, c.category_name
         ORDER BY category_revenue DESC
@@ -1922,7 +1946,7 @@ def average_items_per_order(connection, cursor):
         SELECT IFNULL(AVG(item_count), 0) AS avg_items_per_order 
         FROM (
             SELECT order_id, COUNT(*) AS item_count 
-            FROM order_details 
+            FROM order_detale 
             GROUP BY order_id
         ) AS sub
         """
@@ -1939,8 +1963,8 @@ def most_popular_categories(connection, cursor):
     try:
         sql = """
         SELECT c.category_id, c.category_name, COUNT(od.order_id) AS order_count
-        FROM order_details od
-        JOIN products p ON od.product_id = p.product_id
+        FROM order_detale od
+        JOIN product p ON od.product_id = p.product_id
         JOIN categories c ON p.category_id = c.category_id
         GROUP BY c.category_id, c.category_name
         ORDER BY order_count DESC
@@ -2026,6 +2050,7 @@ def peak_order_hour(connection, cursor):
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
 
 # 21. API: الگوی سفارشات در یک روز (با گروه‌بندی بر اساس ساعت)
+
 @app.route("/stats/daily_order_pattern", methods=["GET"])
 @with_db_connection
 def daily_order_pattern(connection, cursor):
@@ -2033,7 +2058,7 @@ def daily_order_pattern(connection, cursor):
         # دریافت تاریخ از پارامترهای GET یا استفاده از تاریخ امروز
         date_str = request.args.get("date")
         if not date_str:
-            date_str = datetime.date.today().isoformat()
+            date_str = date.today().isoformat()
         sql = """
         SELECT HOUR(date_time) AS hour, COUNT(*) AS orders 
         FROM orders 
@@ -2047,6 +2072,7 @@ def daily_order_pattern(connection, cursor):
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
 
+
 # 22. API: نرخ نگهداری مشتریان (مشتریانی که بیش از یک سفارش داشته‌اند)
 @app.route("/stats/customer_retention", methods=["GET"])
 @with_db_connection
@@ -2054,14 +2080,17 @@ def customer_retention(connection, cursor):
     try:
         sql_total = "SELECT COUNT(DISTINCT customer_phone) AS total_customers FROM orders"
         cursor.execute(sql_total)
-        total_customers = cursor.fetchone()["total_customers"]
+        total_customers = cursor.fetchone()[0]
+
         sql_repeat = """
         SELECT COUNT(*) AS repeat_customers 
         FROM (SELECT customer_phone, COUNT(*) AS order_count FROM orders GROUP BY customer_phone HAVING order_count > 1) AS sub
         """
         cursor.execute(sql_repeat)
-        repeat_customers = cursor.fetchone()["repeat_customers"]
+        repeat_customers = cursor.fetchone()[0]
+
         retention_rate = (repeat_customers / total_customers * 100) if total_customers else 0
+
         return jsonify({
             "total_customers": total_customers,
             "repeat_customers": repeat_customers,
@@ -2069,6 +2098,7 @@ def customer_retention(connection, cursor):
         })
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
 
 # 23. API: مشتریان جدید در مقابل مشتریان برگشتی
 @app.route("/stats/new_vs_returning_customers", methods=["GET"])
@@ -2078,8 +2108,8 @@ def new_vs_returning_customers(connection, cursor):
         sql = "SELECT customer_phone, COUNT(*) AS order_count FROM orders GROUP BY customer_phone"
         cursor.execute(sql)
         data = cursor.fetchall()
-        new_customers = sum(1 for d in data if d["order_count"] == 1)
-        returning_customers = sum(1 for d in data if d["order_count"] > 1)
+        new_customers = sum(1 for d in data if d[1] == 1)
+        returning_customers = sum(1 for d in data if d[1] > 1)
         return jsonify({
             "new_customers": new_customers,
             "returning_customers": returning_customers
@@ -2087,6 +2117,10 @@ def new_vs_returning_customers(connection, cursor):
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
 
+
+
+
+'''
 # 24. API: نرخ تحقق سفارش (با استفاده از ستون status، فرض شده 'fulfilled' نشان‌دهنده تکمیل است)
 @app.route("/stats/order_fulfillment_rate", methods=["GET"])
 @with_db_connection
@@ -2103,6 +2137,8 @@ def order_fulfillment_rate(connection, cursor):
         })
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+    
+
 
 # 25. API: نرخ لغو سفارش
 @app.route("/stats/cancellation_rate", methods=["GET"])
@@ -2120,19 +2156,24 @@ def cancellation_rate(connection, cursor):
         })
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+        '''
+
 
 # 26. API: فروش بر اساس روش پرداخت (فرض بر این که ستون payment_method در orders موجود است)
 @app.route("/stats/sales_by_payment_method", methods=["GET"])
 @with_db_connection
 def sales_by_payment_method(connection, cursor):
     try:
-        sql = "SELECT payment_method, IFNULL(SUM(total), 0) AS total_sales FROM orders GROUP BY payment_method"
+        sql = "SELECT payment_method_id, IFNULL(SUM(total), 0) AS total_sales FROM orders GROUP BY payment_method_id"
         cursor.execute(sql)
         result = cursor.fetchall()
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+    
 
+
+'''
 # 27. API: فروش بر اساس منطقه (فرض شده ستون region در جدول customer موجود است)
 @app.route("/stats/sales_by_region", methods=["GET"])
 @with_db_connection
@@ -2149,13 +2190,16 @@ def sales_by_region(connection, cursor):
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+'''
+
+
 
 # 28. API: خلاصه جزئیات سفارش‌ها (تعداد آیتم‌ها، مجموع تعداد، و درآمد کل)
 @app.route("/stats/order_details_summary", methods=["GET"])
 @with_db_connection
 def order_details_summary(connection, cursor):
     try:
-        sql = "SELECT COUNT(*) AS total_items, IFNULL(SUM(quantity), 0) AS total_quantity, IFNULL(SUM(total_price), 0) AS total_revenue FROM order_details"
+        sql = "SELECT COUNT(*) AS total_items, IFNULL(SUM(quantity), 0) AS total_quantity, IFNULL(SUM(total_price), 0) AS total_revenue FROM order_detale"
         cursor.execute(sql)
         result = cursor.fetchone()
         return jsonify(result)
@@ -2179,17 +2223,11 @@ def customer_average_order_value(connection, cursor):
 @with_db_connection
 def median_order_value(connection, cursor):
     try:
-        sql = """
-        SELECT AVG(total) AS median_order_value FROM (
-            SELECT total FROM orders
-            ORDER BY total
-            LIMIT 2 - (SELECT COUNT(*) FROM orders) % 2
-            OFFSET (SELECT (COUNT(*) - 1) / 2 FROM orders)
-        ) AS med
-        """
-        cursor.execute(sql)
-        result = cursor.fetchone()
-        return jsonify(result)
+        cursor.execute("SELECT total FROM orders ORDER BY total")
+        rows = cursor.fetchall()
+        totals = [row[0] for row in rows]  # یا row["total"] اگر dictCursor دارید
+        median_value = median(totals) if totals else 0
+        return jsonify({"median_order_value": median_value})
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
 
@@ -2210,7 +2248,7 @@ def order_variance_std(connection, cursor):
 @with_db_connection
 def products_per_order(connection, cursor):
     try:
-        sql = "SELECT AVG(product_count) AS avg_products_per_order FROM (SELECT order_id, COUNT(*) AS product_count FROM order_details GROUP BY order_id) AS sub"
+        sql = "SELECT AVG(product_count) AS avg_products_per_order FROM (SELECT order_id, COUNT(*) AS product_count FROM order_detale GROUP BY order_id) AS sub"
         cursor.execute(sql)
         result = cursor.fetchone()
         return jsonify(result)
@@ -2224,10 +2262,21 @@ def repeat_order_rate(connection, cursor):
     try:
         sql_total = "SELECT COUNT(*) AS total_orders FROM orders"
         cursor.execute(sql_total)
-        total = cursor.fetchone()["total_orders"]
-        sql_repeat = "SELECT COUNT(*) AS repeat_orders FROM orders WHERE customer_phone IN (SELECT customer_phone FROM orders GROUP BY customer_phone HAVING COUNT(*) > 1)"
+        total = cursor.fetchone()[0]
+
+        sql_repeat = """
+            SELECT COUNT(*) AS repeat_orders 
+            FROM orders 
+            WHERE customer_phone IN (
+                SELECT customer_phone 
+                FROM orders 
+                GROUP BY customer_phone 
+                HAVING COUNT(*) > 1
+            )
+        """
         cursor.execute(sql_repeat)
-        repeat_orders = cursor.fetchone()["repeat_orders"]
+        repeat_orders = cursor.fetchone()[0]
+
         rate = (repeat_orders / total * 100) if total else 0
         return jsonify({
             "total_orders": total,
@@ -2236,6 +2285,7 @@ def repeat_order_rate(connection, cursor):
         })
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
 
 # 34. API: توزیع فروش ساعتی برای امروز
 @app.route("/stats/hrly_sales_distribution", methods=["GET"])
@@ -2269,7 +2319,7 @@ def daily_sales_average(connection, cursor):
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
 
 # 36. API: روند فروش هفتگی (12 هفته اخیر)
-@app.route("/stats/weekly_sales_trend", methods=["GET"])
+@app.route("/stats/ز", methods=["GET"])
 @with_db_connection
 def weekly_sales_trend(connection, cursor):
     try:
@@ -2315,7 +2365,6 @@ def monthly_sales_growth(connection, cursor):
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
 
 
-# 38. API: تعداد سفارش‌ها و درآمد بر اساس دسته‌ب
 
 
 
