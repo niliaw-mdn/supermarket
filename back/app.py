@@ -626,9 +626,7 @@ def get_available_quantity(connection, cursor, product_id):
 
 
 
-# if its worked delete this line and replace it by T
-from flask import Response
-import json
+
 
 @app.route('/getProductspn', methods=['GET'])
 @with_db_connection
@@ -636,7 +634,7 @@ def get_productspn(connection, cursor):
     try:
         if not connection.is_connected():
             connection.reconnect()
-            cursor = connection.cursor()
+        cursor = connection.cursor()
 
         page = request.args.get('page', default=1, type=int)
         limit = request.args.get('limit', default=20, type=int)
@@ -646,6 +644,7 @@ def get_productspn(connection, cursor):
         max_price = request.args.get('maxPrice', default=None, type=int)
         sort_field = request.args.get('sort', default='name', type=str)
         sort_order = request.args.get('order', default='asc', type=str)
+        brand = request.args.get('brand', default=None, type=str)  # 🔸 فیلتر برند
 
         print("Received parameters:", {
             'page': page,
@@ -656,9 +655,10 @@ def get_productspn(connection, cursor):
             'max_price': max_price,
             'sort_field': sort_field,
             'sort_order': sort_order,
+            'brand': brand
         })
 
-        valid_sort_fields = ['name', 'price_per_unit', 'available_quantity']
+        valid_sort_fields = ['name', 'price_per_unit', 'available_quantity', 'manufacturer_name']
         if sort_field not in valid_sort_fields:
             print(f"Invalid sort field: {sort_field}, defaulting to 'name'")
             sort_field = 'name'
@@ -670,13 +670,17 @@ def get_productspn(connection, cursor):
         query_params = []
 
         if search:
-            filters.append("(product.name LIKE %s OR categories.category_name LIKE %s)")
+            filters.append("(product.name LIKE %s OR categories.category_name LIKE %s OR product.manufacturer_name LIKE %s)")
             search_term = f"%{search}%"
-            query_params.extend([search_term, search_term])
+            query_params.extend([search_term, search_term, search_term])
 
         if category_id is not None:
             filters.append("product.category_id = %s")
             query_params.append(category_id)
+
+        if brand:
+            filters.append("product.manufacturer_name = %s")
+            query_params.append(brand)
 
         if min_price is not None and max_price is not None:
             filters.append("product.price_per_unit BETWEEN %s AND %s")
@@ -703,7 +707,7 @@ def get_productspn(connection, cursor):
         offset = (page - 1) * limit
         select_query = f"""
             SELECT product.product_id, product.name, product.price_per_unit, product.available_quantity, 
-                   product.image_address, product.category_id, categories.category_name
+                   product.image_address, product.category_id, categories.category_name, product.manufacturer_name
             FROM grocery_store.product
             JOIN categories ON product.category_id = categories.category_id
             {filter_query}
@@ -720,7 +724,8 @@ def get_productspn(connection, cursor):
                 'available_quantity': row[3],
                 'image_address': row[4],
                 'category_id': row[5],
-                'category_name': row[6]
+                'category_name': row[6],
+                'manufacturer_name': row[7]
             }
             for row in cursor.fetchall()
         ]
@@ -733,13 +738,53 @@ def get_productspn(connection, cursor):
             'products': products
         }
         return Response(json.dumps(response_data, ensure_ascii=False), content_type='application/json; charset=utf-8')
-    
+
     except mysql.connector.Error as err:
         print(f"Database error: {err}")
         return Response(json.dumps({'error': str(err)}, ensure_ascii=False), content_type='application/json; charset=utf-8'), 500
     except Exception as e:
         print(f"Unexpected error: {e}")
         return Response(json.dumps({'error': str(e)}, ensure_ascii=False), content_type='application/json; charset=utf-8'), 500
+
+
+
+
+
+
+
+@app.route('/getBrands', methods=['GET'])
+@with_db_connection
+def get_brands(connection, cursor):
+    try:
+        if not connection.is_connected():
+            connection.reconnect()
+        cursor = connection.cursor()
+
+        query = """
+            SELECT DISTINCT manufacturer_name
+            FROM grocery_store.product
+            WHERE manufacturer_name IS NOT NULL AND manufacturer_name <> ''
+            ORDER BY manufacturer_name ASC
+        """
+        cursor.execute(query)
+        brands = [row[0] for row in cursor.fetchall()]
+
+        return Response(json.dumps({'brands': brands}, ensure_ascii=False),
+                        content_type='application/json; charset=utf-8')
+
+    except mysql.connector.Error as err:
+        print(f"Database error: {err}")
+        return Response(json.dumps({'error': str(err)}, ensure_ascii=False),
+                        content_type='application/json; charset=utf-8'), 500
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return Response(json.dumps({'error': str(e)}, ensure_ascii=False),
+                        content_type='application/json; charset=utf-8'), 500
+
+
+
+
+
 
 
 
