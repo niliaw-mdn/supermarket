@@ -1751,6 +1751,10 @@ def get_customer_orders(connection, cursor):
 
     return jsonify(order_list)
 
+
+
+
+
 @app.route("/get_order_details/<int:order_id>", methods=["GET"])
 @with_db_connection
 def get_order_details(order_id, connection, cursor):
@@ -2408,6 +2412,155 @@ def monthly_sales_growth(connection, cursor):
         })
     except Exception as e:
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
+
+
+#----------------------------------------------------------------------------------------------
+#user data access
+
+
+
+
+
+
+@app.route("/get_customer_info", methods=["GET"])
+@with_db_connection
+def get_customer_info(connection, cursor):
+    # دریافت داده‌های JSON از فرانت
+    data = request.get_json()
+    customer_email = data.get("customer_email")
+    
+    # بررسی وجود ایمیل مشتری در درخواست
+    if not customer_email:
+        return jsonify({"error": "ایمیل مشتری اجباری است"}), 400
+
+    try:
+        with connection.cursor() as cursor:
+            # اجرای کوئری جهت جستجوی مشتری بر اساس ایمیل
+            sql = "SELECT * FROM user WHERE email = %s"
+            cursor.execute(sql, (customer_email,))
+            customer = cursor.fetchone()
+            
+            # در صورتی که مشتری یافت نشد، پیام خطای مناسب ارسال می‌شود
+            if not customer:
+                return jsonify({"error": "مشتری با این ایمیل یافت نشد"}), 404
+
+    except Exception as e:
+        return jsonify({
+            "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
+            "exception": str(e)
+        }), 500
+
+    finally:
+        connection.close()  # بستن اتصال به دیتابیس در نهایت
+
+    return jsonify(customer)
+
+
+
+
+
+
+
+
+@app.route("/update_customer_email_password", methods=["POST"])
+@with_db_connection
+def update_customer_email_password(connection, cursor):
+    # دریافت داده‌های JSON از فرانت
+    data = request.get_json()
+    customer_phone = data.get("customer_phone")
+    new_email = data.get("new_email")
+    new_password_salt = data.get("new_password_salt")
+    new_password_hash = data.get("new_password_hash")
+    
+    # بررسی وجود شماره تماس مشتری در درخواست
+    if not customer_phone:
+        return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
+
+    try:
+        with connection.cursor() as cursor:
+            # اجرای کوئری جهت بروزرسانی ایمیل و پسورد مشتری
+            sql = "UPDATE user SET email = %s, password_salt = %s, password_hash = %s WHERE phone = %s"
+            cursor.execute(sql, (new_email, new_password_salt, new_password_hash, customer_phone))
+            connection.commit()
+            
+            # بررسی تعداد ردیف‌های بروزرسانی شده
+            if cursor.rowcount == 0:
+                return jsonify({"error": "مشتری با این شماره تماس یافت نشد"}), 404
+
+    except Exception as e:
+        return jsonify({
+            "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
+            "exception": str(e)
+        }), 500
+
+    finally:
+        connection.close()  # بستن اتصال به دیتابیس در نهایت
+
+    return jsonify({"message": "اطلاعات مشتری با موفقیت بروزرسانی شد"})
+
+
+
+
+
+
+
+
+
+@app.route("/update_customer_info", methods=["POST"])
+@with_db_connection
+def update_customer_info(connection, cursor):
+    # دریافت داده‌های JSON از فرانت
+    data = request.get_json()
+    customer_phone = data.get("customer_phone")
+    update_fields = {
+        "first_name": data.get("first_name"),
+        "last_name": data.get("last_name"),
+        "birthday": data.get("birthday"),
+        "membership_date": data.get("membership_date"),
+        "work_experience": data.get("work_experience"),
+        "country": data.get("country"),
+        "skills": data.get("skills"),
+        "working_hours": data.get("working_hours")
+    }
+    
+    # بررسی وجود شماره تماس مشتری در درخواست
+    if not customer_phone:
+        return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
+
+    try:
+        # ساخت لیست برای ستون‌ها و مقادیر بروزرسانی
+        update_query_parts = []
+        values = []
+        for key, value in update_fields.items():
+            if value is not None:
+                update_query_parts.append(f"{key} = %s")
+                values.append(value)
+
+        if not update_query_parts:
+            return jsonify({"error": "هیچ داده‌ای برای بروزرسانی ارائه نشده است"}), 400
+        
+        set_clause = ", ".join(update_query_parts)
+        values.append(customer_phone)  # افزودن شماره تماس برای شرط WHERE
+
+        with connection.cursor() as cursor:
+            sql = f"UPDATE user SET {set_clause} WHERE phone = %s"
+            cursor.execute(sql, tuple(values))
+            connection.commit()
+
+            if cursor.rowcount == 0:
+                return jsonify({"error": "مشتری با این شماره تماس یافت نشد"}), 404
+
+    except Exception as e:
+        return jsonify({
+            "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
+            "exception": str(e)
+        }), 500
+
+    finally:
+        connection.close()  # بستن اتصال به دیتابیس در نهایت
+
+    return jsonify({"message": "اطلاعات مشتری با موفقیت بروزرسانی شد"})
+
 
 
 
