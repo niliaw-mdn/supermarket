@@ -176,44 +176,6 @@ def get_all_users():
 
 
 
-# 
-
-
-"""
-
-# ditection camera 
-@app.route('/video', methods=['GET']) 
-def video(): 
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame') 
-
-"""
-'''
-# not nesesery!!!!!!!!!!!!
-# return detectiion lable 
-@app.route('/detections', methods=['GET']) 
-def detections(): 
-    if detection_counts: 
-        most_detected_label = max(detection_counts, key=detection_counts.get) 
-        return jsonify({'most_detected': most_detected_label}) 
-    else: 
-        return jsonify({'most_detected':'No detections made'})'''
-
-
-# Orders APIs
-@app.route('/insertOrder', methods=['POST'])
-@jwt_required()
-def insert_order():
-    request_payload = json.loads(request.form['date'])
-    order_id = orders_dao.insert_order(connection, request_payload)
-    return jsonify({'order_id': order_id})
-    
-
-
-@app.route('/getAllOrders', methods=['GET'])
-@jwt_required()
-def get_all_orders():
-    response = orders_dao.get_all_orders(connection)
-    return jsonify(response)
 
 
 if __name__ == "__main__":
