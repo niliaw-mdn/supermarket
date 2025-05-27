@@ -746,13 +746,6 @@ def get_customer_orders(connection, cursor):
 
 
 
-
-
-
-
-
-
-
 @app.route("/get_order_details/<int:order_id>", methods=["GET"])
 @with_db_connection
 def get_order_details(order_id, connection, cursor):

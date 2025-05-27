@@ -20,8 +20,42 @@ import signal
 
 from statistics import median
 
+
+
+import json
+import threading
+from flask import Flask, request, jsonify, make_response, render_template, Response
+import os
+from flask import Blueprint, request, Response, jsonify
+from back.db_connection import get_sql_connection
+from camera_dao import generate_frames, detection_counts
+
+from flask_jwt_extended import (
+    JWTManager, create_access_token, create_refresh_token,
+    jwt_required, get_jwt_identity, get_jwt
+)
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import timedelta
+import uuid
+
+# Import database methods from db_methods.py
+from user_dao import fetch_user_by_email, create_user, delete_user_by_id, fetch_all_users, fetch_user_by_id
+
+
+
 app = Flask(__name__)
 CORS(app)
+
+# Configure JWT Secret Key and Token Expiry Times
+app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
+app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(hours=3)
+jwt = JWTManager(app)
+
+# In-memory storage for revoked tokens
+revoked_tokens = set()
+
+
 
 # Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -43,8 +77,155 @@ os.makedirs(output_dir, exist_ok=True)
 streamlit_proc = None
 timer = None
 
+
+
+#---------------------------------------------------------------------------------------------------------------
+
+
+
+
+@jwt.token_in_blocklist_loader
+def check_if_token_revoked(jwt_header, jwt_payload):
+    token_id = jwt_payload['jti']
+    return token_id in revoked_tokens
+
+# Callback: Handle Expired Tokens
+@jwt.expired_token_loader
+def handle_expired_token(jwt_header, jwt_payload):
+    token_id = jwt_payload['jti']
+    revoked_tokens.add(token_id)
+    return jsonify({'message': 'Token has expired. Please log in again.'}), 401
+
+# Middleware: Check JWT Token for All Requests
+@app.before_request
+def check_request_token():
+    # Allow these routes without requiring a token
+    unprotected_routes = ['login', 'register', 'refresh']
+    if request.endpoint in unprotected_routes or request.endpoint is None:
+        return None
+
+    try:
+        get_jwt_identity()  # Validate JWT token
+    except Exception as e:
+        return jsonify({'message': 'Unauthorized. Invalid or expired token.', 'error': str(e)}), 401
+
+
+
+
+# Route: Register New User
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+
+    if not email or not password:
+        return jsonify({'message': 'Email and password are required'}), 400
+
+    if fetch_user_by_email(email):
+        return jsonify({'message': 'Email already exists'}), 409
+
+    password_salt = str(uuid.uuid4())
+    password_hash = generate_password_hash(password + password_salt)
+    create_user(email, password_hash, password_salt)
+
+    return jsonify({'message': 'User registered successfully'}), 201
+
+# Route: Login User
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+
+    if not email or not password:
+        return jsonify({'message': 'Email and password are required'}), 400
+
+    user = fetch_user_by_email(email)
+    if not user:
+        return jsonify({'message': 'Invalid email or password'}), 401
+
+    password_hash = user['password_hash']
+    password_salt = user['password_salt']
+
+    if not check_password_hash(password_hash, password + password_salt):
+        return jsonify({'message': 'Invalid email or password'}), 401
+
+    access_token = create_access_token(identity=user['user_id'], additional_claims={"type":"User"})
+    refresh_token = create_refresh_token(identity=user['user_id'])
+    return jsonify({'access_token': access_token, 'refresh_token': refresh_token}), 200
+
+
+
+# Route: Refresh Access Token
+@app.route('/refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def refresh():
+    user_id = get_jwt_identity()
+    new_access_token = create_access_token(identity=user_id)
+    return jsonify({'access_token': new_access_token}), 200
+
+# Route: Logout (Access Token)
+@app.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    jti = get_jwt()['jti']
+    user_type = get_jwt()['user_type']
+    if user_type != "User":
+        raise
+    revoked_tokens.add(jti)
+    return jsonify({'message': 'Access token successfully revoked'}), 200
+
+# Route: Logout (Refresh Token)
+@app.route('/logout-refresh', methods=['POST'])
+@jwt_required(refresh=True)
+def logout_refresh():
+    jti = get_jwt()['jti']
+    revoked_tokens.add(jti)
+    return jsonify({'message': 'Refresh token successfully revoked'}), 200
+
+# Route: Delete User
+@app.route('/delete-account', methods=['DELETE'])
+@jwt_required()
+def delete_account():
+    user_id = get_jwt_identity()
+    delete_user_by_id(user_id)
+    return jsonify({'message': 'Account deleted successfully'}), 200
+
+# Route: Get User Information
+@app.route('/get-user', methods=['GET'])
+@jwt_required()
+def get_user():
+    user_id = get_jwt_identity()
+    user = fetch_user_by_id(user_id)
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+
+    return jsonify({'user_id': user['user_id'], 'email': user['email']}), 200
+
+# Route: Get All Users
+@app.route('/get-all-users', methods=['GET'])
+@jwt_required()
+def get_all_users():
+    user_id = get_jwt_identity()
+    if user_id != 1:  # Only admin (user_id = 1) is authorized
+        return jsonify({'message': 'You are not authorized to access this endpoint'}), 403
+
+    users = fetch_all_users()
+    return jsonify(users), 200
+
+
+
+
+#---------------------------------------------------------------------------------------------------------------
+
+
+
+
+
 # Route for serving images from the 'uploads' folder
 @app.route("/uploads/<path:filename>")
+@jwt_required()
 def uploaded_file(filename):
     return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
@@ -88,6 +269,8 @@ def with_db_connection(func):
 
 
 @app.route('/capture', methods=['GET'])
+@jwt_required()
+
 def capture_images():
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -129,6 +312,7 @@ def capture_images():
 # T $
 # 1. تعداد کل محصولات
 @app.route('/total_products', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def total_products(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product")
@@ -138,6 +322,7 @@ def total_products(connection, cursor):
 # T
 # 2. میانگین قیمت هر واحد
 @app.route('/average_price', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def average_price(connection, cursor):
     cursor.execute("SELECT AVG(price_per_unit) FROM product")
@@ -147,6 +332,7 @@ def average_price(connection, cursor):
 # T
 # 3. بیشترین تخفیف داده شده
 @app.route('/max_discount', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def max_discount(connection, cursor):
     cursor.execute("SELECT MAX(discount_percentage) FROM product")
@@ -156,6 +342,7 @@ def max_discount(connection, cursor):
 # T
 # 4. کمترین وزن
 @app.route('/min_weight', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def min_weight(connection, cursor):
     cursor.execute("SELECT MIN(weight) FROM product")
@@ -165,6 +352,7 @@ def min_weight(connection, cursor):
 # T
 # 5. مجموع سود
 @app.route('/total_profit', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def total_profit(connection, cursor):
     cursor.execute("SELECT SUM(total_profit_on_sales) FROM product")
@@ -174,6 +362,7 @@ def total_profit(connection, cursor):
 # T
 # 6.  محصولات منقضی شده
 @app.route('/expired_productspn', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def expired_productspn(connection, cursor):
     # دریافت پارامترهای صفحه‌بندی
@@ -233,6 +422,7 @@ def expired_productspn(connection, cursor):
 # T
 # 7. تعداد محصولات در حال انقضاء (در یک ماه آینده)
 @app.route('/expiring_products', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def expiring_products(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE expiration_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)")
@@ -244,6 +434,7 @@ def expiring_products(connection, cursor):
 # 7.2 لیست محصولات در حال انقضاء (در یک ماه آینده) با پیجینیشن
 
 @app.route('/expiring_productspn', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def expiring_productspn(connection, cursor):
     page = request.args.get('page', default=1, type=int)
@@ -301,6 +492,7 @@ def expiring_productspn(connection, cursor):
 # T
 # 8. تعداد محصولات بدون تخفیف
 @app.route('/no_discount_products', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def no_discount_products(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE discount_percentage = 0")
@@ -310,6 +502,7 @@ def no_discount_products(connection, cursor):
 # T
 # 9. مجموع وزن محصولات
 @app.route('/total_weight', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def total_weight(connection, cursor):
     cursor.execute("SELECT name, weight, error_rate_in_weight, available_quantity FROM product")
@@ -333,6 +526,7 @@ def total_weight(connection, cursor):
 # T
 # 10. بیشترین قیمت هر واحد
 @app.route('/max_price', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def max_price(connection, cursor):
     cursor.execute("SELECT MAX(price_per_unit) FROM product")
@@ -342,6 +536,7 @@ def max_price(connection, cursor):
 # T
 # 11. کمترین قیمت هر واحد
 @app.route('/min_price', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def min_price(connection, cursor):
     cursor.execute("SELECT MIN(price_per_unit) FROM product")
@@ -351,6 +546,7 @@ def min_price(connection, cursor):
 # T
 # 12. تعداد محصولات با قیمت بیش از 10000 تومان
 @app.route('/price_above_10000', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def price_above_10000(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE price_per_unit > 10000")
@@ -360,6 +556,7 @@ def price_above_10000(connection, cursor):
 # T
 # 13. تعداد محصولات با وزن کمتر از 500 گرم
 @app.route('/weight_below_500', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def weight_below_500(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE weight < 500")
@@ -369,6 +566,7 @@ def weight_below_500(connection, cursor):
 # T
 # 14. میانگین درصد تخفیف
 @app.route('/average_discount', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def average_discount(connection, cursor):
     cursor.execute("SELECT AVG(discount_percentage) FROM product")
@@ -378,6 +576,7 @@ def average_discount(connection, cursor):
 # T
 # 15. تعداد محصولات با سود بیش از 100000 تومان
 @app.route('/profit_above_1000', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def profit_above_1000(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE total_profit_on_sales > 100000")
@@ -387,6 +586,7 @@ def profit_above_1000(connection, cursor):
 # T
 # 16. تعداد محصولات با تخفیف کمتر از 10 درصد
 @app.route('/discount_below_10', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def discount_below_10(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE discount_percentage < 10")
@@ -396,6 +596,7 @@ def discount_below_10(connection, cursor):
 # T
 # 17. میانگین وزن محصولات
 @app.route('/average_weight', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def average_weight(connection, cursor):
     cursor.execute("SELECT AVG(weight) FROM product")
@@ -405,6 +606,7 @@ def average_weight(connection, cursor):
 # T
 # 18. بیشترین سود هر محصول
 @app.route('/max_profit', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def max_profit(connection, cursor):
     cursor.execute("SELECT MAX(total_profit_on_sales) FROM product")
@@ -414,6 +616,7 @@ def max_profit(connection, cursor):
 # T
 # 19. کمترین سود هر محصول
 @app.route('/min_profit', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def min_profit(connection, cursor):
     cursor.execute("SELECT MIN(total_profit_on_sales) FROM product")
@@ -423,6 +626,7 @@ def min_profit(connection, cursor):
 # T
 # 20. تعداد محصولات با سود منفی (ضرر)
 @app.route('/negative_profit_products', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def negative_profit_products(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE total_profit_on_sales < 0")
@@ -432,6 +636,7 @@ def negative_profit_products(connection, cursor):
 # T
 # 21. مجموع تخفیف‌ها
 @app.route('/total_discounts', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def total_discounts(connection, cursor):
     cursor.execute("SELECT SUM(discount_percentage) FROM product")
@@ -441,6 +646,7 @@ def total_discounts(connection, cursor):
 # T
 # 22. تعداد محصولات با قیمت بین 5000 تا 10000 تومان
 @app.route('/price_between_5000_10000', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def price_between_5000_10000(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE price_per_unit BETWEEN 5000 AND 10000")
@@ -450,6 +656,7 @@ def price_between_5000_10000(connection, cursor):
 # T
 # 23. میانگین سود هر محصول
 @app.route('/average_profit', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def average_profit(connection, cursor):
     cursor.execute("SELECT AVG(total_profit_on_sales) FROM product")
@@ -459,6 +666,7 @@ def average_profit(connection, cursor):
 # T
 # 24. تعداد محصولات با وزن بین 500 تا 1000 گرم
 @app.route('/weight_between_500_1000', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def weight_between_500_1000(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE weight BETWEEN 500 AND 1000")
@@ -468,6 +676,7 @@ def weight_between_500_1000(connection, cursor):
 # T
 # 25. بیشترین سود در فروش
 @app.route('/max_sales_profit', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def max_sales_profit(connection, cursor):
     cursor.execute("SELECT MAX(total_profit_on_sales) FROM product")
@@ -477,6 +686,7 @@ def max_sales_profit(connection, cursor):
 # T
 # 26. کمترین سود در فروش
 @app.route('/min_sales_profit', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def min_sales_profit(connection, cursor):
     cursor.execute("SELECT MIN(total_profit_on_sales) FROM product")
@@ -486,6 +696,7 @@ def min_sales_profit(connection, cursor):
 # T
 # 27. میانگین قیمت محصولات بدون تخفیف
 @app.route('/average_price_no_discount', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def average_price_no_discount(connection, cursor):
     cursor.execute("SELECT AVG(price_per_unit) FROM product WHERE discount_percentage = 0")
@@ -495,6 +706,7 @@ def average_price_no_discount(connection, cursor):
 # T
 # 28. تعداد محصولات با سود بالای 500 تومان
 @app.route('/profit_above_500', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def profit_above_500(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE total_profit_on_sales > 500")
@@ -504,6 +716,7 @@ def profit_above_500(connection, cursor):
 # T
 # 29. میانگین سود هر واحد
 @app.route('/average_profit_per_unit', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def average_profit_per_unit(connection, cursor):
     cursor.execute("SELECT AVG(total_profit_on_sales / number_sold) FROM product")
@@ -513,6 +726,7 @@ def average_profit_per_unit(connection, cursor):
 # T
 # 30. مجموع تعداد واحدهای فروخته شده
 @app.route('/total_units_sold', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def total_units_sold(connection, cursor):
     cursor.execute("SELECT SUM(number_sold) FROM product")
@@ -522,6 +736,7 @@ def total_units_sold(connection, cursor):
 # T
 # 31. بیشترین تعداد واحدهای فروخته شده از یک محصول
 @app.route('/max_units_sold', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def max_units_sold(connection, cursor):
     cursor.execute("SELECT MAX(number_sold) FROM product")
@@ -531,6 +746,7 @@ def max_units_sold(connection, cursor):
 # T
 # 32. کمترین تعداد واحدهای فروخته شده از یک محصول
 @app.route('/min_units_sold', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def min_units_sold(connection, cursor):
     cursor.execute("SELECT MIN(number_sold) FROM product")
@@ -540,6 +756,7 @@ def min_units_sold(connection, cursor):
 # T
 # 33. میانگین تعداد واحدهای فروخته شده از یک محصول
 @app.route('/average_units_sold', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def average_units_sold(connection, cursor):
     cursor.execute("SELECT AVG(number_sold) FROM product")
@@ -549,6 +766,7 @@ def average_units_sold(connection, cursor):
 # T
 # 34. تعداد محصولات با قیمت بیش از میانگین قیمت
 @app.route('/price_above_average', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def price_above_average(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE price_per_unit > (SELECT AVG(price_per_unit) FROM product)")
@@ -558,6 +776,7 @@ def price_above_average(connection, cursor):
 # T
 # 35. تعداد محصولات با تخفیف بیش از میانگین تخفیف
 @app.route('/discount_above_average', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def discount_above_average(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE discount_percentage > (SELECT AVG(discount_percentage) FROM product)")
@@ -601,6 +820,7 @@ def average_units_sold_in_month():
 # T
 # 40. تعداد محصولات با سود هر واحد بیش از میانگین سود هر واحد
 @app.route('/profit_per_unit_above_average', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def profit_per_unit_above_average(connection, cursor):
     cursor.execute("SELECT COUNT(*) FROM product WHERE (total_profit_on_sales / number_sold) > (SELECT AVG(total_profit_on_sales / number_sold) FROM product)")
@@ -613,6 +833,7 @@ def profit_per_unit_above_average(connection, cursor):
 
 # get available quantity of a product
 @app.route('/getAvailableQuantity/<int:product_id>', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def get_available_quantity(connection, cursor, product_id):
     cursor.execute("SELECT available_quantity FROM grocery_store.product WHERE product_id = %s", (product_id,))
@@ -629,6 +850,7 @@ def get_available_quantity(connection, cursor, product_id):
 
 
 @app.route('/getProductspn', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def get_productspn(connection, cursor):
     try:
@@ -753,6 +975,7 @@ def get_productspn(connection, cursor):
 
 
 @app.route('/getBrands', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def get_brands(connection, cursor):
     try:
@@ -789,6 +1012,7 @@ def get_brands(connection, cursor):
 
 
 @app.route('/getProduct/<int:product_id>', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def get_one_product(connection, cursor, product_id):
     query = """
@@ -849,6 +1073,7 @@ def get_one_product(connection, cursor, product_id):
 # T
 # update all attribute of a product except id
 @app.route('/updateProduct/<int:product_id>', methods=['PUT'])
+@jwt_required()
 @with_db_connection
 def update_product(connection, cursor, product_id):
     try:
@@ -934,6 +1159,7 @@ def update_product(connection, cursor, product_id):
 # T
 # inserting all attribute of a product 
 @app.route('/insertProduct', methods=['POST'])
+@jwt_required()
 @with_db_connection
 def insert_product(connection, cursor):
     try:
@@ -998,6 +1224,7 @@ def insert_product(connection, cursor):
 # T
 # worning !!! this function remove product from the universe (even in order_detale table like never exist)
 @app.route('/deleteProduct', methods=['POST'])
+@jwt_required()
 @with_db_connection
 def delete_product(connection, cursor):
     if request.content_type != 'application/json':
@@ -1030,6 +1257,7 @@ def delete_product(connection, cursor):
 # T
 # delete one specific product(just delete those product that dont have any sall)
 @app.route('/deleteUnsallProduct', methods=['POST'])
+@jwt_required()
 @with_db_connection
 def delete_unsall_product(connection, cursor):
     if request.content_type != 'application/json':
@@ -1057,6 +1285,7 @@ def delete_unsall_product(connection, cursor):
 # T
 # return all unites of mesurment
 @app.route('/getUOM', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def get_uom(connection, cursor):
     cursor.execute("SELECT * FROM uom")
@@ -1077,6 +1306,7 @@ def get_uom(connection, cursor):
 # return all category
 
 @app.route('/getcategory', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def get_category(connection, cursor):
     try:
@@ -1123,6 +1353,7 @@ def get_category(connection, cursor):
 
 
 @app.route('/getAllOrders', methods=['GET'])
+@jwt_required()
 @with_db_connection
 def get_all_orders(connection, cursor):
     try:
@@ -1204,6 +1435,7 @@ def get_all_orders(connection, cursor):
 
 
 @app.route("/get_customer_info", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def get_customer_info(connection, cursor):
     # دریافت داده‌های JSON از فرانت
@@ -1249,6 +1481,7 @@ def get_customer_info(connection, cursor):
 
 # return all products for scrool down
 @app.route("/get_all_productss", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def get_all_productss(connection, cursor):
     """ دریافت تمام نام کالاها """
@@ -1271,6 +1504,7 @@ def get_all_productss(connection, cursor):
 
 # return the search result base on type from the bigening the type for your search result
 @app.route("/search_products", methods=["POST"])
+@jwt_required()
 @with_db_connection
 def search_products(connection, cursor):
     """ جستجوی کالاهایی که نامشان با متن وارد شده شروع می‌شود """
@@ -1301,6 +1535,7 @@ def search_products(connection, cursor):
 #ثبت تصاویری دلخواه با دوربین از محصولا برای ترین 
 #نام کاربر که یونیک است رو میگیره و با همون اسم به علاوه شماره ان تصویر در بک ذخیره میکند 
 @app.route('/capture_new_product_image', methods=['POST'])
+@jwt_required()
 def capture_image():
     
     image_counter = 0
@@ -1343,6 +1578,7 @@ def capture_image():
 
 
 @app.route("/get_customer_orders", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def get_customer_orders(connection, cursor):
     # دریافت داده‌های JSON از فرانت
@@ -1390,6 +1626,7 @@ def get_customer_orders(connection, cursor):
 
 
 @app.route("/get_order_details/<int:order_id>", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def get_order_details(order_id, connection, cursor):
     try:
@@ -1432,6 +1669,7 @@ def get_order_details(order_id, connection, cursor):
 
 # 1. API: مجموع کل فروش
 @app.route("/stats/total_sales", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def total_sales(connection, cursor):
     try:
@@ -1444,6 +1682,7 @@ def total_sales(connection, cursor):
 
 # 2. API: تعداد کل سفارش‌ها
 @app.route("/stats/total_orders", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def total_orders(connection, cursor):
     try:
@@ -1456,6 +1695,7 @@ def total_orders(connection, cursor):
 
 # 3. API: میانگین ارزش سفارش‌ها
 @app.route("/stats/average_order_value", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def average_order_value(connection, cursor):
     try:
@@ -1468,6 +1708,7 @@ def average_order_value(connection, cursor):
 
 # 4. API: سفارش‌ها بر اساس تاریخ (تعداد سفارش روزانه)
 @app.route("/stats/orders_by_date", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def orders_by_date(connection, cursor):
     try:
@@ -1485,6 +1726,7 @@ def orders_by_date(connection, cursor):
 
 # 5. API: مجموع فروش روزانه
 @app.route("/stats/sales_by_date", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def sales_by_date(connection, cursor):
     try:
@@ -1502,6 +1744,7 @@ def sales_by_date(connection, cursor):
 
 # 6. API: مجموع فروش ماهانه
 @app.route("/stats/sales_by_month", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def sales_by_month(connection, cursor):
     try:
@@ -1519,6 +1762,7 @@ def sales_by_month(connection, cursor):
 
 # 7. API: مجموع فروش سالانه
 @app.route("/stats/sales_by_year", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def sales_by_year(connection, cursor):
     try:
@@ -1536,6 +1780,7 @@ def sales_by_year(connection, cursor):
 
 # 8. API: مشتریان برتر (بزرگترین هزینه)
 @app.route("/stats/top_customers", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def top_customers(connection, cursor):
     try:
@@ -1555,6 +1800,7 @@ def top_customers(connection, cursor):
 
 # 9. API: تعداد سفارش‌های هر مشتری
 @app.route("/stats/customer_order_counts", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def customer_order_counts(connection, cursor):
     try:
@@ -1567,6 +1813,7 @@ def customer_order_counts(connection, cursor):
 
 # 10. API: محصولات پرفروش (بر اساس تعداد)
 @app.route("/stats/top_products", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def top_products(connection, cursor):
     try:
@@ -1586,6 +1833,7 @@ def top_products(connection, cursor):
 
 # 11. API: درآمد هر محصول
 @app.route("/stats/product_revenue", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def product_revenue(connection, cursor):
     try:
@@ -1604,6 +1852,7 @@ def product_revenue(connection, cursor):
 
 # 12. API: درآمد بر اساس دسته‌بندی محصولات
 @app.route("/stats/revenue_by_category", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def revenue_by_category(connection, cursor):
     try:
@@ -1622,6 +1871,7 @@ def revenue_by_category(connection, cursor):
 
 # 13. API: میانگین تعداد آیتم در هر سفارش
 @app.route("/stats/average_items_per_order", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def average_items_per_order(connection, cursor):
     try:
@@ -1641,6 +1891,7 @@ def average_items_per_order(connection, cursor):
 
 # 14. API: محبوب‌ترین دسته‌بندی‌ها (بر اساس تعداد سفارش)
 @app.route("/stats/most_popular_categories", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def most_popular_categories(connection, cursor):
     try:
@@ -1662,6 +1913,7 @@ def most_popular_categories(connection, cursor):
 
 # 15. API: تعداد سفارشات در 30 روز گذشته
 @app.route("/stats/orders_last_30_days", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def orders_last_30_days(connection, cursor):
     try:
@@ -1674,6 +1926,7 @@ def orders_last_30_days(connection, cursor):
 
 # 16. API: مجموع فروش در 30 روز گذشته
 @app.route("/stats/sales_last_30_days", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def sales_last_30_days(connection, cursor):
     try:
@@ -1686,6 +1939,7 @@ def sales_last_30_days(connection, cursor):
 
 # 17. API: تعداد سفارشات در 7 روز گذشته
 @app.route("/stats/orders_last_7_days", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def orders_last_7_days(connection, cursor):
     try:
@@ -1698,6 +1952,7 @@ def orders_last_7_days(connection, cursor):
 
 # 18. API: مجموع فروش در 7 روز گذشته
 @app.route("/stats/sales_last_7_days", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def sales_last_7_days(connection, cursor):
     try:
@@ -1710,6 +1965,7 @@ def sales_last_7_days(connection, cursor):
 
 # 19. API: تعداد سفارشات در یک ساعت گذشته
 @app.route("/stats/orders_last_hour", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def orders_last_hour(connection, cursor):
     try:
@@ -1722,6 +1978,7 @@ def orders_last_hour(connection, cursor):
 
 # 20. API: ساعت اوج سفارشات (ساعتی که بیشترین سفارش ثبت شده)
 @app.route("/stats/peak_order_hour", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def peak_order_hour(connection, cursor):
     try:
@@ -1735,6 +1992,7 @@ def peak_order_hour(connection, cursor):
 # 21. API: الگوی سفارشات در یک روز (با گروه‌بندی بر اساس ساعت)
 
 @app.route("/stats/daily_order_pattern", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def daily_order_pattern(connection, cursor):
     try:
@@ -1758,6 +2016,7 @@ def daily_order_pattern(connection, cursor):
 
 # 22. API: نرخ نگهداری مشتریان (مشتریانی که بیش از یک سفارش داشته‌اند)
 @app.route("/stats/customer_retention", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def customer_retention(connection, cursor):
     try:
@@ -1785,6 +2044,7 @@ def customer_retention(connection, cursor):
 
 # 23. API: مشتریان جدید در مقابل مشتریان برگشتی
 @app.route("/stats/new_vs_returning_customers", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def new_vs_returning_customers(connection, cursor):
     try:
@@ -1844,6 +2104,7 @@ def cancellation_rate(connection, cursor):
 
 # 26. API: فروش بر اساس روش پرداخت (فرض بر این که ستون payment_method در orders موجود است)
 @app.route("/stats/sales_by_payment_method", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def sales_by_payment_method(connection, cursor):
     try:
@@ -1879,6 +2140,7 @@ def sales_by_region(connection, cursor):
 
 # 28. API: خلاصه جزئیات سفارش‌ها (تعداد آیتم‌ها، مجموع تعداد، و درآمد کل)
 @app.route("/stats/order_details_summary", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def order_details_summary(connection, cursor):
     try:
@@ -1891,6 +2153,7 @@ def order_details_summary(connection, cursor):
 
 # 29. API: میانگین ارزش سفارش به ازای هر مشتری
 @app.route("/stats/customer_average_order_value", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def customer_average_order_value(connection, cursor):
     try:
@@ -1903,6 +2166,7 @@ def customer_average_order_value(connection, cursor):
 
 # 30. API: میانه ارزش سفارش‌ها
 @app.route("/stats/median_order_value", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def median_order_value(connection, cursor):
     try:
@@ -1916,6 +2180,7 @@ def median_order_value(connection, cursor):
 
 # 31. API: واریانس و انحراف معیار ارزش سفارش‌ها
 @app.route("/stats/order_variance_std", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def order_variance_std(connection, cursor):
     try:
@@ -1928,6 +2193,7 @@ def order_variance_std(connection, cursor):
 
 # 32. API: میانگین تعداد محصولات در هر سفارش
 @app.route("/stats/products_per_order", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def products_per_order(connection, cursor):
     try:
@@ -1940,6 +2206,7 @@ def products_per_order(connection, cursor):
 
 # 33. API: نرخ سفارش‌های تکراری (درصد سفارش‌هایی که از مشتریان برگشتی هستند)
 @app.route("/stats/repeat_order_rate", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def repeat_order_rate(connection, cursor):
     try:
@@ -1972,6 +2239,7 @@ def repeat_order_rate(connection, cursor):
 
 # 34. API: توزیع فروش ساعتی برای امروز
 @app.route("/stats/hrly_sales_distribution", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def hrly_sales_distribution(connection, cursor):
     try:
@@ -1984,6 +2252,7 @@ def hrly_sales_distribution(connection, cursor):
 
 # 35. API: میانگین فروش روزانه طی 30 روز گذشته
 @app.route("/stats/daily_sales_average", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def daily_sales_average(connection, cursor):
     try:
@@ -2003,6 +2272,7 @@ def daily_sales_average(connection, cursor):
 
 # 36. API: روند فروش هفتگی (12 هفته اخیر)
 @app.route("/stats/ز", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def weekly_sales_trend(connection, cursor):
     try:
@@ -2015,6 +2285,7 @@ def weekly_sales_trend(connection, cursor):
 
 # 37. API: رشد فروش ماهانه (مقایسه فروش ماه جاری با ماه قبلی)
 @app.route("/stats/monthly_sales_growth", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def monthly_sales_growth(connection, cursor):
     try:
@@ -2057,6 +2328,7 @@ def monthly_sales_growth(connection, cursor):
 
 
 @app.route("/get_user_info", methods=["GET"])
+@jwt_required()
 @with_db_connection
 def get_user_info(connection, cursor):
     # دریافت داده‌های JSON از فرانت
@@ -2103,6 +2375,7 @@ def get_user_info(connection, cursor):
 
 
 @app.route("/update_user_info", methods=["POST"])
+@jwt_required()
 @with_db_connection
 def update_user_info(connection, cursor):
     # دریافت داده‌های JSON از فرانت
@@ -2168,4 +2441,4 @@ def update_user_info(connection, cursor):
 
 
 if __name__ == "__main__":
-    app.run(port=5000,debug=True)
+    app.run(port=5000, debug=True, threaded=True )
