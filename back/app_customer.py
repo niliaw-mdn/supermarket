@@ -803,4 +803,4 @@ def get_order_details(order_id, connection, cursor):
 
 
 if __name__ == "__main__":
-    app.run(port=5001,debug=True)
+    app.run(port=5001, debug=True, threaded=True)
