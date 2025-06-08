@@ -1,16 +1,8 @@
 from functools import wraps
 from flask import jsonify
 import mysql
-from back.db_connection import close_connection, get_db_connection
+from db_connection import close_connection, get_db_connection
 
-#from werkzeug.security import generate_password_hash
-@app.errorhandler(mysql.connector.Error)
-def handle_db_error(error):
-    """Handle database errors and return appropriate JSON response."""
-    return jsonify({
-        "error": str(error),
-        "code": error.errno if hasattr(error, 'errno') else 500
-    }), 500
 
 # Corrected decorator for database operations
 def with_db_connection(func):

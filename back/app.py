@@ -27,8 +27,8 @@ import threading
 from flask import Flask, request, jsonify, make_response, render_template, Response
 import os
 from flask import Blueprint, request, Response, jsonify
-from back.db_connection import get_sql_connection
-from camera_dao import generate_frames, detection_counts
+#from back.db_connection import get_sql_connection
+#from camera_dao import generate_frames, detection_counts
 
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
