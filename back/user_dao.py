@@ -1,12 +1,44 @@
-from back.db_connection import get_sql_connection
+from functools import wraps
+from flask import jsonify
+import mysql
+from back.db_connection import close_connection, get_db_connection
 
 #from werkzeug.security import generate_password_hash
+@app.errorhandler(mysql.connector.Error)
+def handle_db_error(error):
+    """Handle database errors and return appropriate JSON response."""
+    return jsonify({
+        "error": str(error),
+        "code": error.errno if hasattr(error, 'errno') else 500
+    }), 500
 
+# Corrected decorator for database operations
+def with_db_connection(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        connection = None
+        cursor = None
+        try:
+            connection = get_db_connection()
+            cursor = connection.cursor()
+            result = func(connection, cursor, *args, **kwargs)
+            connection.commit()
+            return result
+        except mysql.connector.Error as err:
+            if connection.is_connected():
+                connection.rollback()
+            raise err
+        finally:
+            if cursor:
+                cursor.close()
+            if connection:
+                close_connection(connection)
+    return wrapper
 
 
 # Helper Function: Fetch User by Email
 def fetch_user_by_email(email):
-    connection = get_sql_connection()
+    connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
     query = "SELECT * FROM users WHERE email = %s"
     cursor.execute(query, (email,))
@@ -16,7 +48,7 @@ def fetch_user_by_email(email):
 
 # Helper Function: Create New User
 def create_user(email, password_hash, password_salt):
-    connection = get_sql_connection()
+    connection = get_db_connection()
     cursor = connection.cursor()
     query = "INSERT INTO users (email, password_hash, password_salt) VALUES (%s, %s, %s)"
     cursor.execute(query, (email, password_hash, password_salt))
@@ -25,7 +57,7 @@ def create_user(email, password_hash, password_salt):
 
 # Helper Function: Delete User by ID
 def delete_user_by_id(user_id):
-    connection = get_sql_connection()
+    connection = get_db_connection()
     cursor = connection.cursor()
     query = "DELETE FROM users WHERE user_id = %s"
     cursor.execute(query, (user_id,))
@@ -34,7 +66,7 @@ def delete_user_by_id(user_id):
 
 # Helper Function: Fetch All Users
 def fetch_all_users():
-    connection = get_sql_connection()
+    connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
     query = "SELECT user_id, email FROM users"
     cursor.execute(query)
@@ -44,7 +76,7 @@ def fetch_all_users():
 
 # Helper Function: Fetch User by ID
 def fetch_user_by_id(user_id):
-    connection = get_sql_connection()
+    connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
     query = "SELECT user_id, email FROM users WHERE user_id = %s"
     cursor.execute(query, (user_id,))
