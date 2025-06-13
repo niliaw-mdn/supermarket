@@ -20,6 +20,13 @@ import signal
 
 from statistics import median
 
+
+import socket
+from flask import Flask, jsonify, request, make_response
+from functools import wraps
+
+
+
 app = Flask(__name__)
 CORS(app)
 
@@ -377,21 +384,180 @@ def insert_order_api(connection, cursor):
     finally:
         cursor.close()
 
-# راه‌اندازی Streamlit پس از رسیدن به مسیر /st1
+
+
+
+
+
+
+
+
+
+
 @app.route('/st1')
-def start_streamlit():
-    # اجرای Streamlit به‌عنوان پروسس فرعی
-    subprocess.Popen(['streamlit', 'run', 'st1.py'])
-    # ریدایرکت به رابط Streamlit (به پورت پیش‌فرض 8501)
-    return redirect("http://localhost:8501", code=302)
+def launch_streamlit():
+    global st_process, st_running, st_port
+    
+    try:
+        # تابع داخلی برای مانیتورینگ وضعیت استریملیت
+        def monitor_streamlit(process):
+            global st_running
+            while True:
+                if process.poll() is not None:
+                    st_running = False
+                    break
+                time.sleep(1)
+        
+        # تابع داخلی برای بررسی استفاده از پورت
+        def is_port_in_use(port):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                return s.connect_ex(('localhost', port)) == 0
+        
+        # اگر استریملیت در حال اجرا نیست یا قبلاً تمام شده، آن را شروع کن
+        if st_process is None or st_process.poll() is not None:
+            # یافتن پورت آزاد
+            port = 8501
+            while is_port_in_use(port):
+                port += 1
+            st_port = port
+            
+            # اجرای استریملیت
+            st_process = subprocess.Popen(
+                ['streamlit', 'run', 'st1.py', '--server.port', str(port), '--server.headless', 'true'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            st_running = True
+            
+            # شروع مانیتورینگ در یک ترد جداگانه
+            threading.Thread(target=monitor_streamlit, args=(st_process,), daemon=True).start()
+            
+            # منتظر بمان تا سرور آماده شود
+            time.sleep(3)
+        else:
+            # استفاده از پورت فعلی
+            port = st_port
+        
+        # برگرداندن صفحه HTML که در تب جدید باز می‌شود
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>باز کردن برنامه خرید</title>
+            <script>
+                // باز کردن استریملیت در تب جدید
+                window.open('http://localhost:{port}', '_blank');
+                
+                // بستن تب فعلی پس از 2 ثانیه
+                setTimeout(function() {{
+                    window.close();
+                }}, 2000);
+            </script>
+        </head>
+        <body>
+            <h1>در حال انتقال به برنامه خرید...</h1>
+            <p>اگر به طور خودکار منتقل نشدید، <a href="http://localhost:{port}" target="_blank">اینجا کلیک کنید</a>.</p>
+        </body>
+        </html>
+        """
+        
+        return make_response(html_content, 200)
+    
+    except Exception as e:
+        return jsonify({'error': f'خطا در اجرای استریملیت: {str(e)}'}), 500
 
 
+
+
+
+
+
+
+# راه‌اندازی Streamlit پس از رسیدن به مسیر /st1
 @app.route('/submit', methods=['POST'])
-def submit():
-    data = request.get_json()
-    print("لیست نهایی خرید دریافت شد:", data)
-    # در اینجا می‌توانید داده را ذخیره یا پردازش کنید
-    return "OK", 200
+@with_db_connection
+def submit_purchase(connection, cursor):
+    try:
+        # دریافت داده JSON از درخواست
+        purchase_data = request.get_json()
+        
+        # بررسی وجود داده
+        if not purchase_data:
+            return jsonify({'error': 'No purchase data provided'}), 400
+        
+        # تبدیل دیکشنری به رشته JSON برای ذخیره در دیتابیس
+        json_purchase = json.dumps(purchase_data)
+        
+        # درج داده در جدول purchases
+        query = """INSERT INTO purchases (purchase_data) VALUES (%s)"""
+        cursor.execute(query, (json_purchase,))
+        
+        # اعمال تغییرات در دیتابیس
+        connection.commit()
+        
+        # دریافت شناسه خرید ثبت شده
+        purchase_id = cursor.lastrowid
+        
+        return jsonify({
+            'message': 'Purchase submitted successfully',
+            'purchase_id': purchase_id,
+            'purchase_data': purchase_data
+        }), 200
+
+    except mysql.connector.Error as err:
+        # بازگردانی تغییرات در صورت خطا
+        connection.rollback()
+        return jsonify({'error': f'Database error: {str(err)}'}), 500
+        
+    except Exception as e:
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+    
+
+
+
+
+
+@app.route('/oldestPurchase', methods=['GET'])
+@with_db_connection
+def get_oldest_purchase(connection, cursor):
+    try:
+        # کوئری برای دریافت قدیمی‌ترین رکورد
+        query = """
+        SELECT id, purchase_data, created_at 
+        FROM purchases 
+        ORDER BY created_at ASC 
+        LIMIT 1
+        """
+        cursor.execute(query)
+        oldest = cursor.fetchone()
+        
+        if not oldest:
+            return jsonify({'message': 'No purchases found'}), 404
+        
+        # تبدیل داده به فرمت مناسب
+        purchase_id, purchase_data, created_at = oldest
+        
+        # اگر purchase_data به صورت رشته JSON است، آن را به دیکشنری تبدیل می‌کنیم
+        if isinstance(purchase_data, str):
+            try:
+                purchase_data = json.loads(purchase_data)
+            except json.JSONDecodeError:
+                pass  # اگر تبدیل نشد، به همان صورت رشته باقی می‌ماند
+        
+        return jsonify({
+            'purchase_id': purchase_id,
+            'purchase_data': purchase_data,
+            'created_at': created_at.strftime('%Y-%m-%d %H:%M:%S')
+        }), 200
+
+    except mysql.connector.Error as err:
+        return jsonify({'error': f'Database error: {str(err)}'}), 500
+        
+    except Exception as e:
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+
 
 
 

@@ -1,204 +1,770 @@
-import os
-import sys
-import threading
-import json
 import cv2
+import requests
 import streamlit as st
 from ultralytics import YOLO
-from imutils.video import VideoStream
-from collections import defaultdict
-from flask import Flask, request, jsonify
+import time
+import json
+import numpy as np
+import pandas as pd
+import torch
 
-# —————— تنظیمات کلی ——————
-os.environ["STREAMLIT_WATCHER_TYPE"] = "none"
-FRONTEND_URL = "http://localhost:3000/api/receive"  # ← این را تغییر بده
-FLASK_PORT   = 8888
-FRAME_LIFETIME = 10
 
-# —————— اپلیکیشن Flask برای ارائه JSON ——————
-flask_app = Flask(__name__)
-products_list = {}  # دیکشنری‌ای که محصولات نهایی اینجا نگه داشته می‌شوند
-
-@flask_app.route("/results", methods=["GET"])
-def get_results():
-    return jsonify(products_list)
-
-def start_flask():
-    # اجرا در ترد جدا (daemon=True تا با خاتمهٔ main thread بمیرد)
-    flask_app.run(port=FLASK_PORT, debug=False, use_reloader=False)
-
-# —————— Streamlit: حالت GPU برای YOLO ——————
-# مطمئن شو که cuda در دسترس است
-if not (st.runtime.exists() and hasattr(st.runtime, "cuda") and st.runtime.cuda.is_available()):
-    # اگر استریم‌لیت cuda رو نشناخت، می‌تونیم مستقیم torch رو چک کنیم
-    import torch
-    if not torch.cuda.is_available():
-        st.error("کارت گرافیک CUDA در دسترس نیست. برنامه روی GPU اجرا نمی‌شود.")
-        st.stop()
-
-# مدل YOLO را روی GPU بارگذاری کن (cuda:0)
-yolo = YOLO("best.pt")
-yolo.to("cuda:0")
-yolo.model.half()
-# —————— session init ——————
-def initialize_session():
-    if "detected_objects" not in st.session_state:
-        st.session_state.detected_objects = {}
-    if "active_objects" not in st.session_state:
-        st.session_state.active_objects = defaultdict(int)
-    if "stop_processing" not in st.session_state:
-        st.session_state.stop_processing = False
-    if "purchase_submitted" not in st.session_state:
-        st.session_state.purchase_submitted = False
-    if "frame" not in st.session_state:
-        st.session_state.frame = None
-    # ← اطمینان از None بودن vs
-    if "vs" not in st.session_state:
-        st.session_state.vs = None
-# —————— CSS سفارشی ——————
+# ----------------- تنظیمات CSS سفارشی -----------------
 def add_custom_css():
     st.markdown("""
     <style>
-      body { font-family: 'IRANSans', sans-serif; background-color: #e8f5e9; }
-      h1,h2,h3,h4 { font-family: 'IRANSans', sans-serif; color: #2e7d32; }
-      .stButton>button { border-radius:8px; font-size:20px; padding:12px 24px; }
-      .submit-button>button { background-color:#FF5733;color:white; }
-      .submit-button>button:hover { background-color:#E63939; }
+    :root {
+        --primary: #0f20db;
+        --primary-light: #888ecf;
+        --background: #e2e8f0;
+        --card-bg: #ffffff;
+        --text: #2d3748;
+        --text-light: #718096;
+        --success: #48bb78;
+        --danger: #e53e3e;
+        --table-header: #0f20db;
+        --table-row-odd: #ffffff;
+        --table-row-even: #f8fafc;
+        --table-border: #e0e0e0;
+        --table-hover: #e6e9ff;
+    }
+
+    .stApp {
+        font-family: 'YekanBakh', Tahoma, sans-serif !important; 
+        background-color: var(--background) !important;
+        color: var(--text) !important;
+    }
+    h1, h2, h3 {
+        text-align: center;
+        color: var(--text) !important;
+        font-weight: 800 !important;
+    }
+    button {
+        background-color: var(--primary) !important;
+        color: white !important;
+        border-radius: 10px;
+        font-size: 18px;
+        padding: 12px 24px;
+        border: none;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(15, 32, 219, 0.2);
+    }
+    button:hover {
+        background-color: var(--primary-light) !important;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 8px rgba(15, 32, 219, 0.3);
+    }
+    .stButton>button {
+        width: 100%;
+    }
+
+    /* استایل‌های سفارشی برای تمام جداول */
+    .stDataFrame, .dataframe {
+        width: 100% !important;
+        border-radius: 12px !important;
+        overflow: hidden !important;
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.08) !important;
+        margin: 20px 0 !important;
+        font-family: 'YekanBakh', Tahoma, sans-serif !important;
+        border-collapse: collapse !important;
+        animation: fadeIn 0.5s ease !important;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .stDataFrame th, .dataframe th {
+        background: linear-gradient(135deg, var(--table-header) 0%, #2c3fe0 100%) !important;
+        color: white !important;
+        padding: 16px 20px !important;
+        font-weight: 700 !important;
+        font-size: 18px !important;
+        text-align: center !important;
+        text-shadow: 0 1px 1px rgba(0,0,0,0.1) !important;
+    }
+
+    .stDataFrame td, .dataframe td {
+        padding: 14px 20px !important;
+        border-bottom: 1px solid var(--table-border) !important;
+        text-align: left !important;
+        font-size: 16px !important;
+        transition: background 0.3s ease !important;
+    }
+
+    .stDataFrame tr, .dataframe tr {
+        background-color: var(--table-row-odd) !important;
+    }
+
+    .stDataFrame tr:nth-child(even), .dataframe tr:nth-child(even) {
+        background-color: var(--table-row-even) !important;
+    }
+
+    .stDataFrame tr:hover td, .dataframe tr:hover td {
+        background-color: var(--table-hover) !important;
+    }
+
+    .stDataFrame .product-name, .dataframe .product-name {
+        font-weight: 600 !important;
+        color: var(--text) !important;
+        text-align: left !important;
+        padding-left: 25px !important;
+    }
+
+    .stDataFrame .product-count, .dataframe .product-count {
+        font-weight: 700 !important;
+        color: var(--primary) !important;
+        font-size: 18px !important;
+        position: relative !important;
+        text-align: left !important;
+    }
+
+    .stDataFrame .product-count::after, .dataframe .product-count::after {
+        content: "عدد" !important;
+        font-size: 12px !important;
+        color: var(--text-light) !important;
+        position: absolute !important;
+        left: 5px !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+    }
+
+    .empty-cart {
+        text-align: center;
+        padding: 30px;
+        color: var(--text-light);
+        font-style: italic;
+        font-size: 18px;
+        background-color: var(--card-bg);
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        margin: 20px 0;
+    }
+
+    .success-toast {
+        background-color: var(--success) !important;
+        color: white !important;
+        font-family: 'YekanBakh' !important;
+        font-size: 16px !important;
+        border-radius: 8px !important;
+    }
+
+    /* استایل‌های دکمه‌های ویرایش */
+    .edit-btn {
+        padding: 8px 15px !important;
+        font-size: 20px !important;
+        min-width: 50px !important;
+    }
+
+    .delete-btn {
+        background-color: var(--danger) !important;
+        color: white !important;
+        font-size: 16px !important;
+        padding: 8px 12px !important;
+        border-radius: 8px !important;
+    }
+
+    .delete-btn:hover {
+        background-color: #c53030 !important;
+    }
+
+    .product-display {
+        font-size: 18px;
+        font-weight: 600;
+        padding: 10px 15px;
+        background-color: #f8fafc;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .product-name-display {
+        flex-grow: 1;
+        text-align: left !important;
+        padding-left: 15px;
+    }
+
+    .product-count-display {
+        font-weight: 700;
+        color: var(--primary);
+        font-size: 20px;
+        min-width: 80px;
+        text-align: left !important;
+    }
+
+    .edit-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    /* انیمیشن برای اضافه شدن محصول */
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+
+    .pulse-animation {
+        animation: pulse 0.5s ease;
+    }
+
+    .edit-section {
+        background-color: #f8fafc;
+        padding: 15px;
+        border-radius: 12px;
+        margin-bottom: 15px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    }
+
+    .editable-table {
+        width: 100%;
+        border-collapse: collapse;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.08);
+        font-family: 'YekanBakh', Tahoma, sans-serif;
+    }
+
+    .editable-table th {
+        background: linear-gradient(135deg, var(--table-header) 0%, #2c3fe0 100%);
+        color: white;
+        padding: 16px 20px;
+        font-weight: 700;
+        font-size: 18px;
+        text-align: center;
+    }
+
+    .editable-table td {
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--table-border);
+        text-align: center;
+        font-size: 16px;
+    }
+
+    .editable-table tr {
+        background-color: var(--table-row-odd);
+    }
+
+    .editable-table tr:nth-child(even) {
+        background-color: var(--table-row-even);
+    }
+
+    .editable-table tr:hover td {
+        background-color: var(--table-hover);
+    }
+
+    .action-cell {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    .editable-btn {
+        min-width: 80px;
+        padding: 8px 12px !important;
+    }
+
+    /* استایل جدید برای پیام موفقیت ثبت نهایی */
+    .success-message-card {
+        background: linear-gradient(135deg, #48bb78 0%, #38a169 100%) !important;
+        color: black !important;
+        padding: 25px;
+        border-radius: 12px;
+        text-align: center;
+        margin-top: 30px;
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
+    }
+
+    .success-message-card h3 {
+        color: black !important;
+        margin-bottom: 15px;
+    }
+
+    .success-message-card p {
+        font-size: 18px;
+        color: black !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# —————— خواندن ویدئو در ترد جدا ——————
-def init_video_stream():
-    vs = VideoStream(src=0).start()
-    st.session_state.vs = vs
 
-# —————— پردازش فریم جدید ——————
-def process_new_frame():
-    # ۱) اگر VideoStream مقداردهی نشده، آن‌را مقداردهی کن
-    if st.session_state.vs is None:
-        st.session_state.vs = VideoStream(src=0).start()
+# ----------------- مقداردهی اولیه session_state -----------------
+def init_session_state():
+    required_states = {
+        "purchase_started": False,
+        "running": False,
+        "purchase_list": {},
+        "tracked_objects": {},
+        "model": None,
+        "cap": None,
+        "final_list": None,
+        "camera_initialized": False,
+        "last_update": 0,
+        "df_placeholder": None
+    }
 
-    vs = st.session_state.vs
-    frame = vs.read()  # حالا vs حتماً یک VideoStream معتبر است
-
-    if frame is None:
-        st.warning("⚠️ عدم دریافت فریم از وب‌کم!")
-        st.session_state.stop_processing = True
-        return
+    for key, value in required_states.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 
+# ----------------- صفحه اصلی قبل از شروع خرید -----------------
+def show_initial_page():
+    container = st.container()
+    with container:
+        st.title("🛒 سیستم خرید هوشمند")
+        col_left, col_center, col_right = st.columns([1, 1, 1])
+
+        with col_left:
+            # ایجاد فضای بیشتر بالای دکمه
+            st.markdown('<div style="margin-top: 40px;">', unsafe_allow_html=True)
+
+            if st.button("شروع عملیات خرید", key="start_btn", use_container_width=True):
+                # باز کردن صفحه در یک تب جدید که قابل بسته شدن است
+                st.markdown(
+                    """
+                    <script>
+                    window.open('', '_blank');
+                    </script>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.session_state.purchase_started = True
+                st.session_state.running = True
+                st.session_state.purchase_list = {}
+                st.session_state.tracked_objects = {}
+                st.session_state.model = YOLO('best.pt')
+                st.session_state.camera_initialized = False
+                st.rerun()
+
+            # اضافه کردن آیکون‌ها زیر دکمه با ایموجی‌های ساده
+            st.markdown(
+                """
+                <div style="text-align: center; margin-top: 30px; font-size: 36px;">
+                    <div style="margin-bottom: 15px;">📷</div>
+                    <div style="margin-bottom: 15px;">🛒</div>
+                    <div>🤖</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with col_center:
+            st.markdown(
+                "<div style='text-align:center; padding-top: 60px;'><strong>برای شروع فرآیند خرید از دکمه سمت چپ استفاده کنید</strong></div>",
+                unsafe_allow_html=True
+            )
+
+            # اضافه کردن فلش با ایموجی
+            st.markdown(
+                """
+                <div style="text-align: center; margin-top: 30px; font-size: 36px;">
+                    ⬅️
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with col_right:
+            # بخش راهنمای استفاده با راست‌چین شدن محتوا
+            st.markdown("""
+            <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+            <h3 style="color: #0f20db; border-bottom: 2px solid #0f20db; padding-bottom: 10px; text-align: right;">راهنمای استفاده</h3>
+            <ol style="padding-right: 20px; line-height: 2; direction: rtl; text-align: right;">
+                <li>دکمه «شروع عملیات» را فشار دهید</li>
+                <li>محصول را مقابل دوربین قرار دهید</li>
+                <li>برای چند ثانیه محصول را جلوی دوربین قرار دهید و سپس از کادر خارج کنید</li>
+                <li>این کار را برای تمام محصولاتتان انجام دهید</li>
+                <li>پس از اتمام خرید، دکمه پایان عملیات را بزنید</li>
+                <li>در صفحه نهایی می‌توانید لیست را ویرایش کنید</li>
+                <li>با زدن دکمه ثبت نهایی، لیست خرید ارسال می‌شود</li>
+            </ol>
+            </div>
+            """, unsafe_allow_html=True)
 
 
-    # inference با نیم‌دقت و استریم
-    results = yolo(frame, device=0, half=True, stream=True, stream_buffer=False)
+# ----------------- فاز دوربین و تشخیص محصولات -----------------
+def run_camera():
+    # ایجاد طرح‌بندی اصلی
+    col_left, col_center, col_right = st.columns([1, 2, 1])
 
-    current_objects = set()
-    for res in results:
-        for box in res.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-            label = res.names[int(box.cls)]
-            current_objects.add(label)
-            # رسم‌بند جعبه و برچسب
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0,0,255), 2)
-            cv2.putText(frame, label, (x1, y1-10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0), 2)
+    # ناحیه سمت چپ: سبد خرید
+    with col_left:
+        st.subheader("🛍️ سبد خرید شما")
+        st.session_state.df_placeholder = st.empty()
 
-    # به‌روز‌رسانی شمارش و مدت ماندگاری
-    det = st.session_state.detected_objects
-    active = st.session_state.active_objects
-    for obj in current_objects:
-        if obj not in active:
-            det[obj] = det.get(obj, 0) + 1
-        active[obj] = FRAME_LIFETIME
+    # ناحیه سمت راست: کنترل‌ها
+    with col_right:
+        st.subheader("📋 راهنما")
+        # راست‌چین کردن متن راهنما (بدون تغییر تیتر)
+        st.markdown("""
+        <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+        <h3 style="color: #0f20db; border-bottom: 2px solid #0f20db; padding-bottom: 10px; text-align: center;">دستورالعمل استفاده</h3>
+        <ol style="padding-right: 20px; line-height: 2; direction: rtl; text-align: right;">
+            <li>محصول را مقابل دوربین قرار دهید</li>
+            <li>برای چند ثانیه محصول را جلوی دوربین نگه دارید</li>
+            <li>محصول را از کادر خارج کنید تا به سبد اضافه شود</li>
+            <li>پس از اتمام، دکمه پایان عملیات را بزنید</li>
+        </ol>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # کاهش عمر اشیاء غایب
-    for obj in list(active):
-        if obj not in current_objects:
-            active[obj] -= 1
-            if active[obj] <= 0:
-                del active[obj]
+        # دکمه پایان عملیات
+        if st.button("⏹️ پایان عملیات", key="end_camera", type="primary", use_container_width=True,
+                     help="پس از اتمام خرید این دکمه را فشار دهید"):
+            st.session_state.running = False
+            if st.session_state.cap and st.session_state.cap.isOpened():
+                st.session_state.cap.release()
+            st.rerun()
 
-    st.session_state.frame = frame
+        # اضافه کردن آیکون‌ها زیر دکمه
+        st.markdown(
+            """
+            <div style="text-align: center; margin-top: 20px; font-size: 36px;">
+                <div style="display: inline-block; margin: 0 10px;">🛒</div>
+                <div style="display: inline-block; margin: 0 10px; color: #48bb78;">✅</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-# —————— نمایش نهایی و ارسال JSON ——————
-def show_final_list_and_submit():
-    st.subheader("🛠️ لیست نهایی اشیاء شناسایی‌شده:")
-    det = st.session_state.detected_objects
+    # راه‌اندازی دوربین
+    if not st.session_state.camera_initialized:
+        try:
+            st.session_state.cap = cv2.VideoCapture(0)
+            st.session_state.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            st.session_state.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            st.session_state.cap.set(cv2.CAP_PROP_FPS, 30)
+            st.session_state.camera_initialized = True
+        except Exception as e:
+            st.error(f"خطا در راه‌اندازی دوربین: {str(e)}")
+            st.session_state.running = False
+            st.rerun()
+            return
 
-    # کنترل افزایش/کاهش تعداد
-    for obj, count in list(det.items()):
-        cols = st.columns([1,1,5])
-        with cols[0]:
-            if st.button("➕", key=f"inc_{obj}"): det[obj] += 1
-        with cols[1]:
-            if st.button("➖", key=f"dec_{obj}"): det[obj] = max(0, det[obj]-1)
-        with cols[2]:
-            st.write(f"**{obj}**: {det[obj]}")
+    # ناحیه مرکزی: نمایش دوربین
+    video_placeholder = col_center.empty()
+    DETECTION_TIMEOUT = 1.0  # زمان عدم مشاهده برای ثبت محصول (ثانیه)
+    last_update_time = time.time()
 
+    try:
+        while st.session_state.running:
+            if not st.session_state.cap or not st.session_state.cap.isOpened():
+                st.error("اتصال به دوربین از دست رفته است")
+                st.session_state.running = False
+                break
+
+            ret, frame = st.session_state.cap.read()
+            if not ret:
+                st.error("خطا در دریافت تصویر از دوربین")
+                time.sleep(0.1)
+                continue
+
+            # کاهش اندازه تصویر برای افزایش سرعت پردازش
+            resized_frame = cv2.resize(frame, (320, 240))
+            results = st.session_state.model.track(resized_frame, persist=True, imgsz=320, verbose=False)
+
+            # شناسایی اشیاء - فقط بزرگترین شیء در هر فریم
+            current_frame_detections = set()
+            current_time = time.time()
+
+            for result in results:
+                # اگر هیچ تشخیصی وجود نداشت، ادامه بده
+                if result.boxes is None or len(result.boxes) == 0:
+                    continue
+
+                # استفاده از .item() برای تبدیل تنسور به مقدار عددی
+                boxes = result.boxes.xyxy.cpu().numpy()
+                clss = result.boxes.cls.cpu().numpy()
+                track_ids = result.boxes.id.cpu().numpy() if result.boxes.id is not None else [None] * len(boxes)
+
+                # پیدا کردن بزرگترین شیء در فریم (بر اساس مساحت)
+                max_area = 0
+                main_index = -1
+
+                for i in range(len(boxes)):
+                    box = boxes[i]
+                    area = (box[2] - box[0]) * (box[3] - box[1])
+                    if area > max_area:
+                        max_area = area
+                        main_index = i
+
+                # اگر شیء معتبری پیدا شد
+                if main_index >= 0:
+                    box = boxes[main_index]
+                    cls_idx = int(clss[main_index].item())
+                    label = result.names[cls_idx]
+                    track_id = track_ids[main_index]
+
+                    if track_id is not None:
+                        track_id = int(track_id.item())
+                        current_frame_detections.add((label, track_id))
+
+                        # ایجاد رکورد جدید برای اشیاء جدید
+                        if track_id not in st.session_state.tracked_objects:
+                            st.session_state.tracked_objects[track_id] = {
+                                "label": label,
+                                "first_seen": current_time,
+                                "last_seen": current_time,
+                                "detected": False
+                            }
+                        else:
+                            # به‌روزرسانی زمان آخرین مشاهده
+                            st.session_state.tracked_objects[track_id]["last_seen"] = current_time
+
+                    # رسم کادر و برچسب فقط برای شیء اصلی
+                    x1, y1, x2, y2 = map(int, box[:4])
+                    scale_x = frame.shape[1] / resized_frame.shape[1]
+                    scale_y = frame.shape[0] / resized_frame.shape[0]
+                    x1, y1, x2, y2 = int(x1 * scale_x), int(y1 * scale_y), int(x2 * scale_x), int(y2 * scale_y)
+
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 180, 0), 3)
+
+                    if track_id is not None:
+                        cv2.putText(frame, f"{label} #{track_id}", (x1, y1 - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 220), 2)
+                    else:
+                        cv2.putText(frame, f"{label}", (x1, y1 - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 220), 2)
+
+            # بررسی محصولات خارج شده از کادر
+            for track_id, obj_info in list(st.session_state.tracked_objects.items()):
+                label = obj_info["label"]
+
+                # اگر شیء در فریم فعلی دیده نشده
+                if not any(l == label and tid == track_id for l, tid in current_frame_detections):
+                    time_since_last_seen = current_time - obj_info["last_seen"]
+
+                    # اگر زمان کافی برای ثبت محصول گذشته باشد
+                    if time_since_last_seen > DETECTION_TIMEOUT and not obj_info["detected"]:
+                        # افزودن به لیست خرید
+                        if label not in st.session_state.purchase_list:
+                            st.session_state.purchase_list[label] = 0
+                        st.session_state.purchase_list[label] += 1
+                        st.session_state.last_update = current_time
+                        st.toast(f"✅ محصول {label} به سبد خرید اضافه شد!", icon="🛒")
+
+                        # علامت گذاری به عنوان شناسایی شده
+                        st.session_state.tracked_objects[track_id]["detected"] = True
+
+            # حذف اشیاء قدیمی
+            for track_id in list(st.session_state.tracked_objects.keys()):
+                if current_time - st.session_state.tracked_objects[track_id]["last_seen"] > 10:  # حذف پس از 10 ثانیه
+                    del st.session_state.tracked_objects[track_id]
+
+            # نمایش ویدئو
+            video_placeholder.image(frame, channels="BGR", use_container_width=True)
+
+            # به‌روزرسانی سبد خرید (حداکثر 5 بار در ثانیه)
+            if current_time - last_update_time > 0.2:  # هر 200 میلی‌ثانیه
+                last_update_time = current_time
+
+                # نمایش جدول سبد خرید
+                if st.session_state.purchase_list:
+                    # ساخت DataFrame برای نمایش داده‌ها
+                    df = pd.DataFrame(
+                        {
+                            "ردیف": range(1, len(st.session_state.purchase_list) + 1),
+                            "نام محصول": list(st.session_state.purchase_list.keys()),
+                            "تعداد": list(st.session_state.purchase_list.values()),
+                        }
+                    )
+                    # نمایش جدول با استایل‌های سفارشی
+                    st.session_state.df_placeholder.dataframe(
+                        df,
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "ردیف": st.column_config.NumberColumn(width="small"),
+                            "نام محصول": st.column_config.TextColumn(width="medium"),
+                            "تعداد": st.column_config.NumberColumn(width="small"),
+                        }
+                    )
+                else:
+                    st.session_state.df_placeholder.markdown(
+                        '<div class="empty-cart">سبد خرید شما خالی است<br>محصولات را مقابل دوربین قرار دهید</div>',
+                        unsafe_allow_html=True
+                    )
+
+            time.sleep(0.01)
+
+    except Exception as e:
+        st.error(f"خطا در پردازش تصویر: {str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
+    finally:
+        if st.session_state.cap and st.session_state.cap.isOpened():
+            st.session_state.cap.release()
+        st.session_state.cap = None
+        st.session_state.camera_initialized = False
+
+
+# ----------------- صفحه نهایی جهت ویرایش سبد خرید -----------------
+def show_final_page():
+    st.title("✅ تکمیل فرآیند خرید")
     st.markdown("---")
 
-    if st.button("📦 ثبت خرید", key="submit_purchase", help="ارسال به فرانت و بستن برنامه"):
-        # آماده‌سازی JSON
-        filtered = {k:v for k,v in det.items() if v>0}
-        # به دیکشنری مشترک Flask بریز
-        global products_list
-        products_list.clear()
-        products_list.update(filtered)
+    # نمایش لیست قابل ویرایش
+    st.subheader("📋 لیست خرید نهایی")
 
-        # ارسال HTTP توسط جاوااسکریپت
-        json_str = json.dumps(filtered, ensure_ascii=False)
-        js = f"""
-        <script>
-          // ۱) ارسال JSON به فرانت
-          fetch("{FRONTEND_URL}", {{
-            method: "POST",
-            headers: {{ "Content-Type": "application/json" }},
-            body: JSON.stringify({json_str})
-          }}).finally(() => {{
-            // ۲) بستن پنجره
-            window.open('','_self');
-            window.close();
-          }});
-        </script>
-        """
-        st.components.v1.html(js, height=0)
-        # توقف در سمت سرور
-        st.session_state.stop_processing = True
-        if st.session_state.vs:
-            st.session_state.vs.stop()
-        st.stop()
-
-# —————— رابط اصلی ——————
-def streamlit_app():
-    st.set_page_config(page_title="شناسایی اشیاء (GPU)", layout="wide")
-    initialize_session()
-    add_custom_css()
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🎥 شروع شناسایی"):
-            st.session_state.stop_processing = False
-            # ← این خط لازم نیست چون process_new_frame خودش init می‌کند
-            # st.session_state.vs = None  
-    with col2:
-        if st.button("⛔ پایان عملیات"):
-            st.session_state.stop_processing = True
-            if st.session_state.vs:
-                st.session_state.vs.stop()
-                st.session_state.vs = None
-
-    if not st.session_state.stop_processing:
-        process_new_frame()
-        if st.session_state.frame is not None:
-            st.image(
-                cv2.cvtColor(st.session_state.frame, cv2.COLOR_BGR2RGB),
-                channels="RGB",
-                use_column_width=True,
-            )
-        st.experimental_rerun()
+    if not st.session_state.purchase_list:
+        st.info("هیچ محصولی در سبد خرید وجود ندارد")
     else:
-        show_final_list_and_submit()
+        # ساخت DataFrame برای نمایش داده‌ها
+        df = pd.DataFrame(
+            {
+                "ردیف": range(1, len(st.session_state.purchase_list) + 1),
+                "نام محصول": list(st.session_state.purchase_list.keys()),
+                "تعداد": list(st.session_state.purchase_list.values()),
+            }
+        )
+
+        # نمایش جدول با استایل‌های سفارشی (چپ چین)
+        st.markdown("""
+        <style>
+            div[data-testid="stDataFrame"] table {
+                width: 100% !important;
+            }
+            div[data-testid="stDataFrame"] th, 
+            div[data-testid="stDataFrame"] td {
+                text-align: left !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.dataframe(
+            df,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "ردیف": st.column_config.NumberColumn(width="small"),
+                "نام محصول": st.column_config.TextColumn(width="medium"),
+                "تعداد": st.column_config.NumberColumn(width="small"),
+            }
+        )
+
+        # ویرایش دستی مقادیر
+        st.subheader("✏️ ویرایش محصولات")
+
+        # ایجاد رابط کاربری برای ویرایش با استفاده از کامپوننت‌های Streamlit
+        for product, count in list(st.session_state.purchase_list.items()):
+            with st.container():
+                st.markdown(f'<div class="product-display product-edit-container">', unsafe_allow_html=True)
+
+                col1, col2, col3 = st.columns([4, 2, 4])
+
+                with col1:
+                    st.markdown(f"<div class='product-name-display'>{product}</div>", unsafe_allow_html=True)
+
+                with col2:
+                    st.markdown(f"<div class='product-count-display'>{count} عدد</div>", unsafe_allow_html=True)
+
+                with col3:
+                    col_dec, col_inc, col_del = st.columns(3)
+
+                    with col_dec:
+                        if st.button("➖ کاهش", key=f"dec_{product}", use_container_width=True):
+                            st.session_state.purchase_list[product] -= 1
+                            if st.session_state.purchase_list[product] <= 0:
+                                del st.session_state.purchase_list[product]
+                            st.rerun()
+
+                    with col_inc:
+                        if st.button("➕ افزایش", key=f"inc_{product}", use_container_width=True):
+                            st.session_state.purchase_list[product] += 1
+                            st.rerun()
+
+                    with col_del:
+                        if st.button("❌ حذف", key=f"del_{product}", type="secondary", use_container_width=True):
+                            del st.session_state.purchase_list[product]
+                            st.rerun()
+
+                st.markdown(f'</div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("🔄 شروع دوباره عملیات خرید", type="primary", use_container_width=True,
+                     help="شروع فرآیند خرید از ابتدا"):
+            st.session_state.purchase_started = False
+            st.session_state.running = False
+            st.session_state.purchase_list = {}
+            st.session_state.tracked_objects = {}
+            st.session_state.final_list = None
+            st.rerun()
+
+    with col2:
+        if st.button("✅ ثبت نهایی خرید", type="primary", use_container_width=True,
+                     help="ثبت نهایی لیست خرید و ارسال آن"):
+            st.session_state.final_list = dict(st.session_state.purchase_list)
+
+            try:
+                # ارسال داده به Flask
+                response = requests.post(
+                    "http://localhost:5000/submit",
+                    json=st.session_state.final_list,
+                    headers={"Content-Type": "application/json"}
+                )
+
+                if response.status_code == 200:
+                    # نمایش پیام موفقیت
+                    st.success("✅ لیست خرید با موفقیت ثبت شد!")
+
+                    # نمایش جزئیات خرید
+                    st.subheader("📝 جزئیات خرید")
+                    st.json(st.session_state.final_list)
+
+                    # نمایش پیام نهایی و بستن تب
+                    st.markdown(
+                        """
+                        <div class="success-message-card">
+                            <h3>خرید شما با موفقیت ثبت شد!</h3>
+                            <p>صفحه در حال بسته شدن است ...</p>
+                        </div>
+                        <script>
+                        setTimeout(function() {
+                            window.top.close();
+                        }, 3000);
+                        </script>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.error(f"خطا در ثبت خرید! کد خطا: {response.status_code}")
+                    st.json(response.json())
+
+            except Exception as e:
+                st.error(f"خطا در ارتباط با سرور: {str(e)}")
+
+
+# ----------------- تابع اصلی -----------------
+def main():
+    st.set_page_config(
+        page_title="سیستم خرید هوشمند",
+        page_icon="🛒",
+        layout="wide",
+        initial_sidebar_state="collapsed"
+    )
+    add_custom_css()
+    init_session_state()
+
+    if not st.session_state.purchase_started:
+        show_initial_page()
+    else:
+        if st.session_state.running:
+            run_camera()
+        else:
+            show_final_page()
 
 
 if __name__ == "__main__":
-    streamlit_app()
+    main()
