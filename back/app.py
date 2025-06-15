@@ -32,7 +32,7 @@ from flask import Blueprint, request, Response, jsonify
 
 from flask_jwt_extended import (
     JWTManager, create_access_token, create_refresh_token,
-    jwt_required, get_jwt_identity, get_jwt
+    jwt_required, get_jwt_identity, get_jwt,verify_jwt_in_request
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import timedelta
@@ -44,7 +44,13 @@ from user_dao import fetch_user_by_email, create_user, delete_user_by_id, fetch_
 
 
 app = Flask(__name__)
-CORS(app)
+CORS(
+    app,
+    resources={r"/*": {"origins": "http://localhost:3000"}},
+    allow_headers=["Authorization", "Content-Type", "Accept"],
+    supports_credentials=True,
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+)
 
 # Configure JWT Secret Key and Token Expiry Times
 app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'
@@ -96,16 +102,21 @@ def handle_expired_token(jwt_header, jwt_payload):
     revoked_tokens.add(token_id)
     return jsonify({'message': 'Token has expired. Please log in again.'}), 401
 
-# Middleware: Check JWT Token for All Requests
+
+
 @app.before_request
 def check_request_token():
-    # Allow these routes without requiring a token
+    if request.method == "OPTIONS":
+        # Allow OPTIONS requests without auth (for CORS preflight)
+        return None
+
     unprotected_routes = ['login', 'register', 'refresh']
     if request.endpoint in unprotected_routes or request.endpoint is None:
         return None
 
     try:
-        get_jwt_identity()  # Validate JWT token
+        verify_jwt_in_request()
+        user = get_jwt_identity()
     except Exception as e:
         return jsonify({'message': 'Unauthorized. Invalid or expired token.', 'error': str(e)}), 401
 
@@ -2327,7 +2338,7 @@ def monthly_sales_growth(connection, cursor):
 
 
 
-@app.route("/get_user_info", methods=["GET"])
+@app.route("/get_user_info", methods=["POST"])
 @jwt_required()
 @with_db_connection
 def get_user_info(connection, cursor):

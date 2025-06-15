@@ -32,7 +32,7 @@ def with_db_connection(func):
 def fetch_user_by_email(email):
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
-    query = "SELECT * FROM users WHERE email = %s"
+    query = "SELECT * FROM user WHERE email = %s"
     cursor.execute(query, (email,))
     user = cursor.fetchone()
     connection.close()
@@ -42,7 +42,7 @@ def fetch_user_by_email(email):
 def create_user(email, password_hash, password_salt):
     connection = get_db_connection()
     cursor = connection.cursor()
-    query = "INSERT INTO users (email, password_hash, password_salt) VALUES (%s, %s, %s)"
+    query = "INSERT INTO user (email, password_hash, password_salt) VALUES (%s, %s, %s)"
     cursor.execute(query, (email, password_hash, password_salt))
     connection.commit()
     connection.close()
@@ -51,7 +51,7 @@ def create_user(email, password_hash, password_salt):
 def delete_user_by_id(user_id):
     connection = get_db_connection()
     cursor = connection.cursor()
-    query = "DELETE FROM users WHERE user_id = %s"
+    query = "DELETE FROM user WHERE user_id = %s"
     cursor.execute(query, (user_id,))
     connection.commit()
     connection.close()
@@ -60,7 +60,7 @@ def delete_user_by_id(user_id):
 def fetch_all_users():
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
-    query = "SELECT user_id, email FROM users"
+    query = "SELECT user_id, email FROM user"
     cursor.execute(query)
     users = cursor.fetchall()
     connection.close()
@@ -70,7 +70,7 @@ def fetch_all_users():
 def fetch_user_by_id(user_id):
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
-    query = "SELECT user_id, email FROM users WHERE user_id = %s"
+    query = "SELECT user_id, email FROM user WHERE user_id = %s"
     cursor.execute(query, (user_id,))
     user = cursor.fetchone()
     connection.close()

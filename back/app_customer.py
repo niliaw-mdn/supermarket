@@ -7,6 +7,7 @@ import os
 from db_connection import get_db_connection, close_connection
 import subprocess
 import time
+import traceback
 
 import subprocess
 import json
@@ -29,13 +30,13 @@ from functools import wraps
 
 app = Flask(__name__)
 CORS(app)
-
 # Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 NEW_PRODUCT_IMG = os.path.join(BASE_DIR, 'new_product_img')
 CUSTOMER_IMAGE = os.path.join(BASE_DIR, 'customer_image')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(CUSTOMER_IMAGE, exist_ok=True)
 os.makedirs(NEW_PRODUCT_IMG, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['NEW_PRODUCT_IMG'] = NEW_PRODUCT_IMG
@@ -394,12 +395,29 @@ def insert_order_api(connection, cursor):
 
 
 
+# Global variables for Streamlit management
+st_process = None
+st_running = False
+st_port = 8501
+
+def is_port_in_use(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        return s.connect_ex(('localhost', port)) == 0
+
+def wait_for_port(port, timeout=30):
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if is_port_in_use(port):
+            return True
+        time.sleep(1)
+    return False
+
 @app.route('/st1')
 def launch_streamlit():
     global st_process, st_running, st_port
     
     try:
-        # تابع داخلی برای مانیتورینگ وضعیت استریملیت
         def monitor_streamlit(process):
             global st_running
             while True:
@@ -408,71 +426,64 @@ def launch_streamlit():
                     break
                 time.sleep(1)
         
-        # تابع داخلی برای بررسی استفاده از پورت
-        def is_port_in_use(port):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                return s.connect_ex(('localhost', port)) == 0
-        
-        # اگر استریملیت در حال اجرا نیست یا قبلاً تمام شده، آن را شروع کن
         if st_process is None or st_process.poll() is not None:
-            # یافتن پورت آزاد
-            port = 8501
+            port = st_port
             while is_port_in_use(port):
                 port += 1
             st_port = port
             
-            # اجرای استریملیت
+            # Get the absolute path to the script
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            script_path = os.path.join(base_dir, 'st1.py')
+            
+            # Verify the file exists
+            if not os.path.exists(script_path):
+                raise FileNotFoundError(f"Streamlit script not found at {script_path}")
+            
+            # Correct command structure
+            cmd = [
+                sys.executable,
+                '-m',
+                'streamlit',
+                'run',
+                script_path,
+                '--server.port',
+                str(port),
+                '--server.headless',
+                'true',
+                '--server.enableCORS',
+                'false'
+            ]
+            
+            print("Executing command:", ' '.join(cmd))  # Debug output
+            
+            # Start the process
             st_process = subprocess.Popen(
-                ['streamlit', 'run', 'st1.py', '--server.port', str(port), '--server.headless', 'true'],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                cwd=base_dir,  # Set working directory
                 text=True
             )
-            st_running = True
             
-            # شروع مانیتورینگ در یک ترد جداگانه
+            st_running = True
             threading.Thread(target=monitor_streamlit, args=(st_process,), daemon=True).start()
             
-            # منتظر بمان تا سرور آماده شود
-            time.sleep(3)
-        else:
-            # استفاده از پورت فعلی
-            port = st_port
+            if not wait_for_port(port, timeout=60):
+                raise Exception(f"Streamlit did not start on port {port}")
         
-        # برگرداندن صفحه HTML که در تب جدید باز می‌شود
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>باز کردن برنامه خرید</title>
-            <script>
-                // باز کردن استریملیت در تب جدید
-                window.open('http://localhost:{port}', '_blank');
-                
-                // بستن تب فعلی پس از 2 ثانیه
-                setTimeout(function() {{
-                    window.close();
-                }}, 2000);
-            </script>
-        </head>
-        <body>
-            <h1>در حال انتقال به برنامه خرید...</h1>
-            <p>اگر به طور خودکار منتقل نشدید، <a href="http://localhost:{port}" target="_blank">اینجا کلیک کنید</a>.</p>
-        </body>
-        </html>
-        """
-        
-        return make_response(html_content, 200)
+        return jsonify({
+            'status': 'success',
+            'port': port,
+            'url': f'http://localhost:{port}'
+        })
     
     except Exception as e:
-        return jsonify({'error': f'خطا در اجرای استریملیت: {str(e)}'}), 500
-
-
-
-
-
-
-
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 # راه‌اندازی Streamlit پس از رسیدن به مسیر /st1
 @app.route('/submit', methods=['POST'])
@@ -714,23 +725,42 @@ def update_stock_after_order(connection, cursor):
         cursor.close()
 
 
-
-
+@app.route('/customer_image/<filename>')
+def serve_customer_image(filename):
+    return send_from_directory(app.config["CUSTOMER_IMAGE"], filename)
         
 @app.route('/insertCustomer', methods=['POST'])
 @with_db_connection
 def insert_customer(connection, cursor):
     try:
-        # دریافت فایل آپلود شده
-        file = request.files['file']
-        file_path = os.path.join(app.config['CUSTOMER_IMAGE'], file.filename)
-        file.save(file_path)
-        relative_file_path = os.path.relpath(file_path, app.config['CUSTOMER_IMAGE'])
+        phone = request.form.get('customer_phone')
+        if not phone:
+            return jsonify({'error': 'Phone number is required'}), 400
 
-        # استخراج اطلاعات مشتری از فرم ارسالی
+        # بررسی وجود مشتری با شماره تلفن داده شده
+        cursor.execute("SELECT customer_id FROM customer WHERE customer_phone = %s", (phone,))
+        existing_customer = cursor.fetchone()
+
+        if existing_customer:
+            # مشتری قبلا ثبت شده، فقط customer_id برگردان
+            customer_id = existing_customer[0]
+            return jsonify({'message': 'Customer already exists', 'customer_id': customer_id}), 200
+
+        # اگر مشتری وجود نداشت، ثبت نام جدید انجام می‌شود
+        file = request.files.get('file')
+        if file:
+            timestamp = int(time.time())
+            file_extension = os.path.splitext(file.filename)[1]
+            simple_filename = f"customer_{timestamp}{file_extension}"
+            file_path = os.path.join(app.config['CUSTOMER_IMAGE'], simple_filename)
+            file.save(file_path)
+            relative_file_path = f"/customer_image/{simple_filename}"
+        else:
+            relative_file_path = None
+
         customer = {
             'customer_name': request.form.get('customer_name'),
-            'customer_phone': request.form.get('customer_phone'),
+            'customer_phone': phone,
             'membership_date': request.form.get('membership_date'),
             'number_of_purchases': request.form.get('number_of_purchases'),
             'total': request.form.get('total'),
@@ -750,8 +780,6 @@ def insert_customer(connection, cursor):
         )
 
         cursor.execute(query, data)
-
-
         connection.commit()
         customer_id = cursor.lastrowid
 
@@ -760,6 +788,8 @@ def insert_customer(connection, cursor):
     except mysql.connector.Error as err:
         connection.rollback()
         return jsonify({'error': str(err)}), 500
+
+
 
 
 
@@ -830,42 +860,83 @@ def update_customer_after_order(connection, cursor):
 
 
 
-@app.route("/get_customer_info", methods=["GET"])
+@app.route("/get_customer_info", methods=["POST"])
 @with_db_connection
 def get_customer_info(connection, cursor):
-    # دریافت داده‌های JSON از فرانت
-    data = request.get_json()
-    customer_phone = data.get("customer_phone")
-    
-    # بررسی وجود شماره تماس مشتری در درخواست
-    if not customer_phone:
-        return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
-
     try:
-        with connection.cursor() as cursor:
-            # اجرای کوئری جهت جستجوی مشتری بر اساس شماره تماس
-            sql = "SELECT * FROM customers WHERE customer_phone = %s"
-            cursor.execute(sql, (customer_phone,))
-            customer = cursor.fetchone()
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "داده‌های درخواست نامعتبر است"}), 400
             
-            # در صورتی که مشتری یافت نشد، پیام خطای مناسب ارسال می‌شود
-            if not customer:
-                return jsonify({"error": "مشتری با این شماره تماس یافت نشد"}), 404
+        customer_phone = data.get("customer_phone")
+        
+        if not customer_phone:
+            return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
+
+        # بروزرسانی کوئری برای دریافت فیلدهای بیشتر
+        sql = """
+        SELECT customer_name, customer_phone, image_address, membership_date, number_of_purchases
+        FROM customer
+        WHERE customer_phone = %s
+        """
+        cursor.execute(sql, (customer_phone,))
+        customer = cursor.fetchone()
+        
+        if not customer:
+            return jsonify({"error": "مشتری با این شماره تماس یافت نشد"}), 404
+
+        customer_data = {
+            "customer_name": customer[0],
+            "customer_phone": customer[1],
+            "image_address": customer[2] if customer[2] else "/pic/avatar.png",
+            "membership_date": customer[3].strftime("%Y-%m-%d") if customer[3] else None,
+            "number_of_purchases": customer[4] or 0
+        }
+        
+        return jsonify(customer_data)
 
     except Exception as e:
+        print(f"Error in get_customer_info: {str(e)}")
         return jsonify({
-            "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
-            "exception": str(e)
+            "error": "خطای سرور",
+            "details": str(e)
         }), 500
+    
+    
 
-    finally:
-        connection.close()  # بستن اتصال به دیتابیس در نهایت
+@app.route("/update_customer_info", methods=["POST"])
+@with_db_connection
+def update_customer_info(connection, cursor):
+    try:
+        data = request.get_json()
 
-    return jsonify(customer)
+        customer_phone = data.get("customer_phone")
+        customer_name = data.get("customer_name")
+
+
+        if not customer_phone:
+            return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
+
+        sql = """
+        UPDATE customer
+        SET customer_name = %s
+        WHERE customer_phone = %s
+        """
+        cursor.execute(sql, (
+            customer_name, customer_phone
+        ))
+        connection.commit()
+
+        return jsonify({"message": "اطلاعات با موفقیت به‌روزرسانی شد"})
+
+    except Exception as e:
+        print(f"Error in update_customer_info: {str(e)}")
+        return jsonify({"error": "خطای سرور", "details": str(e)}), 500
 
 
 
-@app.route("/get_customer_orders", methods=["GET"])
+@app.route("/get_customer_orders", methods=["POST"])
 @with_db_connection
 def get_customer_orders(connection, cursor):
     # دریافت داده‌های JSON از فرانت
