@@ -416,6 +416,8 @@ def wait_for_port(port, timeout=30):
 @app.route('/st1')
 def launch_streamlit():
     global st_process, st_running, st_port
+
+    port = st_port 
     
     try:
         def monitor_streamlit(process):
@@ -427,7 +429,6 @@ def launch_streamlit():
                 time.sleep(1)
         
         if st_process is None or st_process.poll() is not None:
-            port = st_port
             while is_port_in_use(port):
                 port += 1
             st_port = port

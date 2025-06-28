@@ -710,7 +710,7 @@ def show_final_page():
             try:
                 # ارسال داده به Flask
                 response = requests.post(
-                    "http://localhost:5000/submit",
+                    "http://localhost:5001/submit",
                     json=st.session_state.final_list,
                     headers={"Content-Type": "application/json"}
                 )
