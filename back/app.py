@@ -21,6 +21,7 @@ import signal
 from statistics import median
 
 
+import pymysql.cursors
 
 import json
 import threading
@@ -2282,7 +2283,7 @@ def daily_sales_average(connection, cursor):
         return jsonify({"error": "خطا در اجرای کوئری", "exception": str(e)}), 500
 
 # 36. API: روند فروش هفتگی (12 هفته اخیر)
-@app.route("/stats/ز", methods=["GET"])
+@app.route("/stats", methods=["GET"])
 @jwt_required()
 @with_db_connection
 def weekly_sales_trend(connection, cursor):
@@ -2342,22 +2343,19 @@ def monthly_sales_growth(connection, cursor):
 @jwt_required()
 @with_db_connection
 def get_user_info(connection, cursor):
-    # دریافت داده‌های JSON از فرانت
     data = request.get_json()
     email = data.get("email")
-    
-    # بررسی وجود ایمیل مشتری در درخواست
+
     if not email:
         return jsonify({"error": "ایمیل مشتری اجباری است"}), 400
 
     try:
-        with connection.cursor() as cursor:
-            # اجرای کوئری جهت جستجوی مشتری بر اساس ایمیل
-            sql = "SELECT * FROM user WHERE email = %s"
+        # استفاده از DictCursor برای بازگرداندن دیکشنری به جای تاپل
+        with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+            sql = "SELECT * FROM user WHERE LOWER(email) = LOWER(%s)"
             cursor.execute(sql, (email,))
             user = cursor.fetchone()
-            
-            # در صورتی که مشتری یافت نشد، پیام خطای مناسب ارسال می‌شود
+
             if not user:
                 return jsonify({"error": "کاربر با این ایمیل یافت نشد"}), 404
 
@@ -2368,7 +2366,7 @@ def get_user_info(connection, cursor):
         }), 500
 
     finally:
-        connection.close()  # بستن اتصال به دیتابیس در نهایت
+        connection.close()
 
     return jsonify(user)
 
