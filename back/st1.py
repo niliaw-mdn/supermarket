@@ -1,12 +1,46 @@
-import cv2
 import requests
-import streamlit as st
+from sympy.printing.pytorch import torch
 from ultralytics import YOLO
-import time
+from pathlib import Path
 import json
-import numpy as np
+import cv2
+import time
 import pandas as pd
-import torch
+import streamlit as st
+
+
+
+
+# تابع برای بارگیری فایل مپینگ محصولات
+def load_product_mapping():
+    try:
+        mapping_file = Path(__file__).parent / "product_name_mapping.json"
+        if not mapping_file.exists():
+            st.error("فایل مپینگ محصولات یافت نشد!")
+            return []
+        with open(mapping_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        st.error(f"خطا در بارگیری فایل مپینگ: {str(e)}")
+        return []
+
+
+
+
+
+# تابع برای تبدیل نام انگلیسی به فارسی
+def get_fa_name(en_label, mapping):
+    cleaned_label = en_label.strip().lower().replace(" ", "_").replace("-", "_")
+    for item in mapping:
+        mapping_label = item["en"].strip().lower().replace(" ", "_").replace("-", "_")
+        if mapping_label == cleaned_label:
+            return item["fa"]
+    return f"نامشخص ({en_label})"
+
+
+
+
+
 
 
 # ----------------- تنظیمات CSS سفارشی -----------------
@@ -306,12 +340,34 @@ def init_session_state():
         "final_list": None,
         "camera_initialized": False,
         "last_update": 0,
-        "df_placeholder": None
+        "df_placeholder": None,
+        "product_mapping": []  # اضافه کردن نگاشت محصولات
     }
 
     for key, value in required_states.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+    # بارگیری نگاشت نام محصولات
+    if not st.session_state.product_mapping:
+        st.session_state.product_mapping = load_product_mapping()
+
+        # بررسی دسترسی به GPU
+    if torch.cuda.is_available():
+        device = "cuda"
+        st.sidebar.success("✅ GPU فعال شد! پردازش تصویر روی کارت گرافیک انجام می‌شود.")
+    else:
+        device = "cpu"
+        st.sidebar.warning("⚠️ GPU یافت نشد! پردازش روی CPU انجام می‌شود.")
+
+        # بارگذاری مدل روی دستگاه مناسب
+    if st.session_state.model is None:
+        st.session_state.model = YOLO('best (1).pt').to(device)
+
+        # تنظیمات بهینه‌سازی برای GPU
+    if device == "cuda":
+        torch.backends.cudnn.benchmark = True
+        torch.set_flush_denormal(True)
 
 
 # ----------------- صفحه اصلی قبل از شروع خرید -----------------
@@ -339,7 +395,7 @@ def show_initial_page():
                 st.session_state.running = True
                 st.session_state.purchase_list = {}
                 st.session_state.tracked_objects = {}
-                st.session_state.model = YOLO('best.pt')
+                st.session_state.model = YOLO('best (1).pt')
                 st.session_state.camera_initialized = False
                 st.rerun()
 
@@ -392,7 +448,21 @@ def show_initial_page():
 
 
 # ----------------- فاز دوربین و تشخیص محصولات -----------------
+
+
+
 def run_camera():
+    # بارگیری نگاشت نام محصولات
+    if "product_mapping" not in st.session_state:
+        st.session_state.product_mapping = load_product_mapping()
+
+    # مقداردهی اولیه متغیرهای ضروری
+    if "purchase_list" not in st.session_state:
+        st.session_state.purchase_list = {}
+
+    if "tracked_objects" not in st.session_state:
+        st.session_state.tracked_objects = {}
+
     # ایجاد طرح‌بندی اصلی
     col_left, col_center, col_right = st.columns([1, 2, 1])
 
@@ -404,7 +474,7 @@ def run_camera():
     # ناحیه سمت راست: کنترل‌ها
     with col_right:
         st.subheader("📋 راهنما")
-        # راست‌چین کردن متن راهنما (بدون تغییر تیتر)
+        # راست‌چین کردن متن راهنما
         st.markdown("""
         <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
         <h3 style="color: #0f20db; border-bottom: 2px solid #0f20db; padding-bottom: 10px; text-align: center;">دستورالعمل استفاده</h3>
@@ -452,9 +522,11 @@ def run_camera():
 
     # ناحیه مرکزی: نمایش دوربین
     video_placeholder = col_center.empty()
-    DETECTION_TIMEOUT = 1.0  # زمان عدم مشاهده برای ثبت محصول (ثانیه)
+    DETECTION_TIMEOUT = 0.5  # زمان عدم مشاهده برای ثبت محصول (ثانیه)
+    MIN_DETECTION_TIME = 1  # حداقل زمان حضور در تصویر برای ثبت محصول (ثانیه)
     last_update_time = time.time()
-
+    # تعیین دستگاه پردازشی
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     try:
         while st.session_state.running:
             if not st.session_state.cap or not st.session_state.cap.isOpened():
@@ -470,9 +542,19 @@ def run_camera():
 
             # کاهش اندازه تصویر برای افزایش سرعت پردازش
             resized_frame = cv2.resize(frame, (320, 240))
-            results = st.session_state.model.track(resized_frame, persist=True, imgsz=320, verbose=False)
 
-            # شناسایی اشیاء - فقط بزرگترین شیء در هر فریم
+            # انجام تشخیص با استفاده از GPU
+            results = st.session_state.model.track(
+                resized_frame,
+                persist=True,
+                imgsz=320,
+                conf=0.6,
+                verbose=False,
+                device=device,  # استفاده از دستگاه تعیین شده
+                half=True if device == "cuda" else False  # استفاده از دقت نیمه-صحیح برای GPU
+            )
+
+            # شناسایی اشیاء - تمام اشیاء در فریم
             current_frame_detections = set()
             current_time = time.time()
 
@@ -481,37 +563,25 @@ def run_camera():
                 if result.boxes is None or len(result.boxes) == 0:
                     continue
 
-                # استفاده از .item() برای تبدیل تنسور به مقدار عددی
+                # استخراج اطلاعات جعبه‌ها و شناسه‌ها
                 boxes = result.boxes.xyxy.cpu().numpy()
                 clss = result.boxes.cls.cpu().numpy()
                 track_ids = result.boxes.id.cpu().numpy() if result.boxes.id is not None else [None] * len(boxes)
 
-                # پیدا کردن بزرگترین شیء در فریم (بر اساس مساحت)
-                max_area = 0
-                main_index = -1
-
                 for i in range(len(boxes)):
                     box = boxes[i]
-                    area = (box[2] - box[0]) * (box[3] - box[1])
-                    if area > max_area:
-                        max_area = area
-                        main_index = i
-
-                # اگر شیء معتبری پیدا شد
-                if main_index >= 0:
-                    box = boxes[main_index]
-                    cls_idx = int(clss[main_index].item())
-                    label = result.names[cls_idx]
-                    track_id = track_ids[main_index]
+                    cls_idx = int(clss[i].item())
+                    en_label = result.names[cls_idx]  # نام انگلیسی محصول
+                    track_id = track_ids[i] if track_ids is not None else None
 
                     if track_id is not None:
                         track_id = int(track_id.item())
-                        current_frame_detections.add((label, track_id))
+                        current_frame_detections.add((en_label, track_id))
 
-                        # ایجاد رکورد جدید برای اشیاء جدید
+                        # ایجاد/به‌روزرسانی رکورد ردیابی
                         if track_id not in st.session_state.tracked_objects:
                             st.session_state.tracked_objects[track_id] = {
-                                "label": label,
+                                "en_label": en_label,
                                 "first_seen": current_time,
                                 "last_seen": current_time,
                                 "detected": False
@@ -520,51 +590,61 @@ def run_camera():
                             # به‌روزرسانی زمان آخرین مشاهده
                             st.session_state.tracked_objects[track_id]["last_seen"] = current_time
 
-                    # رسم کادر و برچسب فقط برای شیء اصلی
+                    # رسم کادر و برچسب
                     x1, y1, x2, y2 = map(int, box[:4])
                     scale_x = frame.shape[1] / resized_frame.shape[1]
                     scale_y = frame.shape[0] / resized_frame.shape[0]
                     x1, y1, x2, y2 = int(x1 * scale_x), int(y1 * scale_y), int(x2 * scale_x), int(y2 * scale_y)
 
+                    # رسم مستطیل دور شیء
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 180, 0), 3)
 
-                    if track_id is not None:
-                        cv2.putText(frame, f"{label} #{track_id}", (x1, y1 - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 220), 2)
-                    else:
-                        cv2.putText(frame, f"{label}", (x1, y1 - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 220), 2)
+                    # نمایش برچسب و شناسه ردیابی
+                    label = f"{en_label} #{track_id}" if track_id is not None else en_label
+                    cv2.putText(frame, label, (x1, y1 - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 220), 2)
 
             # بررسی محصولات خارج شده از کادر
             for track_id, obj_info in list(st.session_state.tracked_objects.items()):
-                label = obj_info["label"]
+                en_label = obj_info["en_label"]
 
                 # اگر شیء در فریم فعلی دیده نشده
-                if not any(l == label and tid == track_id for l, tid in current_frame_detections):
+                if not any(label == en_label and tid == track_id for label, tid in current_frame_detections):
                     time_since_last_seen = current_time - obj_info["last_seen"]
+                    time_present = current_time - obj_info["first_seen"]
 
-                    # اگر زمان کافی برای ثبت محصول گذشته باشد
-                    if time_since_last_seen > DETECTION_TIMEOUT and not obj_info["detected"]:
+                    # شرایط ثبت محصول:
+                    # 1. حداقل زمان حضور در تصویر گذشته باشد
+                    # 2. زمان کافی از آخرین مشاهده گذشته باشد
+                    # 3. قبلاً ثبت نشده باشد
+                    if (time_present > MIN_DETECTION_TIME and
+                            time_since_last_seen > DETECTION_TIMEOUT and
+                            not obj_info["detected"]):
+
+                        # تبدیل نام انگلیسی به فارسی
+                        fa_label = get_fa_name(en_label, st.session_state.product_mapping)
+
                         # افزودن به لیست خرید
-                        if label not in st.session_state.purchase_list:
-                            st.session_state.purchase_list[label] = 0
-                        st.session_state.purchase_list[label] += 1
+                        if fa_label not in st.session_state.purchase_list:
+                            st.session_state.purchase_list[fa_label] = 0
+                        st.session_state.purchase_list[fa_label] += 1
+
                         st.session_state.last_update = current_time
-                        st.toast(f"✅ محصول {label} به سبد خرید اضافه شد!", icon="🛒")
+                        st.toast(f"✅ محصول {fa_label} به سبد خرید اضافه شد!", icon="🛒")
 
                         # علامت گذاری به عنوان شناسایی شده
                         st.session_state.tracked_objects[track_id]["detected"] = True
 
-            # حذف اشیاء قدیمی
+            # حذف اشیاء قدیمی (پس از 10 ثانیه عدم مشاهده)
             for track_id in list(st.session_state.tracked_objects.keys()):
-                if current_time - st.session_state.tracked_objects[track_id]["last_seen"] > 10:  # حذف پس از 10 ثانیه
+                if current_time - st.session_state.tracked_objects[track_id]["last_seen"] > 10:
                     del st.session_state.tracked_objects[track_id]
 
             # نمایش ویدئو
             video_placeholder.image(frame, channels="BGR", use_container_width=True)
 
-            # به‌روزرسانی سبد خرید (حداکثر 5 بار در ثانیه)
-            if current_time - last_update_time > 0.2:  # هر 200 میلی‌ثانیه
+            # به‌روزرسانی سبد خرید (هر 0.5 ثانیه)
+            if current_time - last_update_time > 0.5:
                 last_update_time = current_time
 
                 # نمایش جدول سبد خرید
@@ -594,13 +674,14 @@ def run_camera():
                         unsafe_allow_html=True
                     )
 
-            time.sleep(0.01)
+            time.sleep(0.03)  # کاهش مصرف CPU
 
     except Exception as e:
         st.error(f"خطا در پردازش تصویر: {str(e)}")
         import traceback
         st.error(traceback.format_exc())
     finally:
+        # آزادسازی منابع دوربین
         if st.session_state.cap and st.session_state.cap.isOpened():
             st.session_state.cap.release()
         st.session_state.cap = None
