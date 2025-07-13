@@ -413,6 +413,12 @@ def wait_for_port(port, timeout=30):
         time.sleep(1)
     return False
 
+
+
+
+PurchaseFlag = {'Purchase_Flag': False}
+flag_lock = threading.Lock()
+
 @app.route('/st1')
 def launch_streamlit():
     global st_process, st_running, st_port
@@ -486,6 +492,12 @@ def launch_streamlit():
             'traceback': traceback.format_exc()
         }), 500
 
+
+
+
+
+
+
 # راه‌اندازی Streamlit پس از رسیدن به مسیر /st1
 @app.route('/submit', methods=['POST'])
 @with_db_connection
@@ -508,6 +520,12 @@ def submit_purchase(connection, cursor):
         # اعمال تغییرات در دیتابیس
         connection.commit()
         
+
+        with flag_lock:
+            PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag'] 
+
+
+        getPurchaseFlag = True
         # دریافت شناسه خرید ثبت شده
         purchase_id = cursor.lastrowid
         
@@ -525,6 +543,16 @@ def submit_purchase(connection, cursor):
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
     
+
+
+
+
+
+@app.route('/getPurchaseFlag', methods=['GET'])
+def total_products():
+    with flag_lock:
+        return jsonify({'Purchase Flag': PurchaseFlag['Purchase_Flag']})
+
 
 
 
@@ -556,7 +584,9 @@ def get_oldest_purchase(connection, cursor):
                 purchase_data = json.loads(purchase_data)
             except json.JSONDecodeError:
                 pass  # اگر تبدیل نشد، به همان صورت رشته باقی می‌ماند
-        
+        with flag_lock:
+            PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag'] 
+            
         return jsonify({
             'purchase_id': purchase_id,
             'purchase_data': purchase_data,

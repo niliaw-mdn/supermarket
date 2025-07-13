@@ -1,5 +1,6 @@
 import requests
-from sympy.printing.pytorch import torch
+#from sympy.printing.pytorch import torch
+import torch
 from ultralytics import YOLO
 from pathlib import Path
 import json
@@ -813,7 +814,7 @@ def show_final_page():
                         </div>
                         <script>
                         setTimeout(function() {
-                            window.top.close();
+                            window.close()();
                         }, 3000);
                         </script>
                         """,
