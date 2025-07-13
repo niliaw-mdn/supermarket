@@ -812,9 +812,11 @@ def show_final_page():
                             <p>صفحه در حال بسته شدن است ...</p>
                         </div>
                         <script>
-                        setTimeout(function() {
-                            window.top.close();
-                        }, 3000);
+                        if (window.opener) {
+                            setTimeout(function() {
+                            window.close();
+                             }, 3000);
+                        }
                         </script>
                         """,
                         unsafe_allow_html=True
