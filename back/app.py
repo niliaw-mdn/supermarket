@@ -2336,9 +2336,6 @@ def monthly_sales_growth(connection, cursor):
 
 
 
-
-
-
 @app.route("/get_user_info", methods=["POST"])
 @jwt_required()
 @with_db_connection
@@ -2350,8 +2347,8 @@ def get_user_info(connection, cursor):
         return jsonify({"error": "ایمیل مشتری اجباری است"}), 400
 
     try:
-        # استفاده از DictCursor برای بازگرداندن دیکشنری به جای تاپل
-        with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+        # Using DictCursor directly from the connection
+        with connection.cursor(dictionary=True) as cursor:
             sql = "SELECT * FROM user WHERE LOWER(email) = LOWER(%s)"
             cursor.execute(sql, (email,))
             user = cursor.fetchone()
@@ -2359,17 +2356,13 @@ def get_user_info(connection, cursor):
             if not user:
                 return jsonify({"error": "کاربر با این ایمیل یافت نشد"}), 404
 
+        return jsonify(user)
+        
     except Exception as e:
         return jsonify({
             "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
             "exception": str(e)
         }), 500
-
-    finally:
-        connection.close()
-
-    return jsonify(user)
-
 
 
 
@@ -2385,61 +2378,74 @@ def get_user_info(connection, cursor):
 
 @app.route("/update_user_info", methods=["POST"])
 @jwt_required()
-@with_db_connection
-def update_user_info(connection, cursor):
-    # دریافت داده‌های JSON از فرانت
+def update_user_info():
+    # Get JSON data from frontend
     data = request.get_json()
     customer_email = data.get("email")
     
-    # لیست فیلدهای قابل‌ویرایش
-    update_fields = {
-        "first_name": data.get("first_name"),
-        "last_name": data.get("last_name"),
-        "birthday": data.get("birthday"),
-        "membership_date": data.get("membership_date"),
-        "work_experience": data.get("work_experience"),
-        "country": data.get("country"),
-        "skills": data.get("skills"),
-        "working_hours": data.get("working_hours")
-    }
-
-    # بررسی وجود ایمیل مشتری
+    # Validate required email field
     if not customer_email:
         return jsonify({"error": "ایمیل مشتری اجباری است"}), 400
 
+    connection = None
+    cursor = None
+    
     try:
-        # ساخت لیست برای ستون‌ها و مقادیر بروزرسانی
-        update_query_parts = []
-        values = []
-        for key, value in update_fields.items():
-            if value is not None:
-                update_query_parts.append(f"{key} = %s")
-                values.append(value)
+        # Get database connection
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
 
-        if not update_query_parts:
-            return jsonify({"error": "هیچ داده‌ای برای بروزرسانی ارائه نشده است"}), 400
+        # Fields that can be updated
+        update_fields = {
+            "first_name": data.get("first_name"),
+            "last_name": data.get("last_name"),
+            "birthday": data.get("birthday"),
+            "work_experience": data.get("work_experience"),
+            "country": data.get("country"),
+            "skills": data.get("skills"),
+            "working_hours": data.get("working_hours")
+        }
+
+        # Filter out None values
+        update_data = {k: v for k, v in update_fields.items() if v is not None}
         
-        set_clause = ", ".join(update_query_parts)
-        values.append(customer_email)  # افزودن ایمیل برای شرط WHERE
+        if not update_data:
+            return jsonify({"error": "هیچ داده‌ای برای بروزرسانی ارائه نشده است"}), 400
 
-        with connection.cursor() as cursor:
-            sql = f"UPDATE user SET {set_clause} WHERE email = %s"
-            cursor.execute(sql, tuple(values))
-            connection.commit()
+        # Build SET clause and values
+        set_clause = ", ".join([f"{field} = %s" for field in update_data.keys()])
+        values = list(update_data.values())
+        values.append(customer_email)
 
-            if cursor.rowcount == 0:
-                return jsonify({"error": "مشتری با این ایمیل یافت نشد"}), 404
+        # Execute update query
+        sql = f"UPDATE user SET {set_clause} WHERE email = %s"
+        cursor.execute(sql, tuple(values))
+        
+        # Check if any rows were affected
+        if cursor.rowcount == 0:
+            return jsonify({"error": "مشتری با این ایمیل یافت نشد"}), 404
+            
+        connection.commit()
+        return jsonify({"message": "اطلاعات مشتری با موفقیت بروزرسانی شد"})
 
     except Exception as e:
+        if connection:
+            connection.rollback()
         return jsonify({
             "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
-            "exception": str(e)
+            "details": str(e)
         }), 500
-
+        
     finally:
-        connection.close()  # بستن اتصال به دیتابیس در نهایت
-
-    return jsonify({"message": "اطلاعات مشتری با موفقیت بروزرسانی شد"})
+        # Safely close cursor and connection
+        if cursor:
+            cursor.close()
+        if connection:
+            try:
+                if connection.is_connected():
+                    connection.close()
+            except:
+                pass  # Ignore any errors during closing
 
 
 

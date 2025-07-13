@@ -814,7 +814,7 @@ def show_final_page():
                         </div>
                         <script>
                         setTimeout(function() {
-                            window.close()();
+                            window.close();
                         }, 3000);
                         </script>
                         """,
