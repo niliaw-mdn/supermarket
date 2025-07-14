@@ -903,16 +903,16 @@ def update_customer_after_order(connection, cursor):
 def get_customer_info(connection, cursor):
     try:
         data = request.get_json()
-        
         if not data:
             return jsonify({"error": "داده‌های درخواست نامعتبر است"}), 400
-            
-        customer_phone = data.get("customer_phone")
         
+        customer_phone = data.get("customer_phone")
         if not customer_phone:
             return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
-
-        # بروزرسانی کوئری برای دریافت فیلدهای بیشتر
+        
+        # استفاده از دیکشنری‌کرسر
+        cursor = connection.cursor(dictionary=True)
+        
         sql = """
         SELECT customer_name, customer_phone, image_address, membership_date, number_of_purchases
         FROM customer
@@ -923,13 +923,13 @@ def get_customer_info(connection, cursor):
         
         if not customer:
             return jsonify({"error": "مشتری با این شماره تماس یافت نشد"}), 404
-
+        
         customer_data = {
-            "customer_name": customer[0],
-            "customer_phone": customer[1],
-            "image_address": customer[2] if customer[2] else "/pic/avatar.png",
-            "membership_date": customer[3].strftime("%Y-%m-%d") if customer[3] else None,
-            "number_of_purchases": customer[4] or 0
+            "customer_name": customer["customer_name"],
+            "customer_phone": customer["customer_phone"],
+            "image_address": customer["image_address"] if customer["image_address"] not in [None, ""] else "/pic/avatar.png",
+            "membership_date": customer["membership_date"].strftime("%Y-%m-%d") if customer["membership_date"] else None,
+            "number_of_purchases": customer["number_of_purchases"] or 0
         }
         
         return jsonify(customer_data)
@@ -940,6 +940,7 @@ def get_customer_info(connection, cursor):
             "error": "خطای سرور",
             "details": str(e)
         }), 500
+
     
     
 
