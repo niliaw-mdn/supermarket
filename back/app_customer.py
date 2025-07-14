@@ -562,7 +562,7 @@ def total_products():
 @with_db_connection
 def get_oldest_purchase(connection, cursor):
     try:
-        # کوئری برای دریافت قدیمی‌ترین رکورد
+        # کوئری برای دریافت جدیدترین رکورد
         query = """
         SELECT id, purchase_data, created_at 
         FROM purchases 
@@ -570,22 +570,29 @@ def get_oldest_purchase(connection, cursor):
         LIMIT 1;
         """
         cursor.execute(query)
-        oldest = cursor.fetchone()
+        record = cursor.fetchone()
         
-        if not oldest:
+        if not record:
             return jsonify({'message': 'No purchases found'}), 404
         
-        # تبدیل داده به فرمت مناسب
-        purchase_id, purchase_data, created_at = oldest
+        # تبدیل داده‌ها
+        purchase_id, purchase_data, created_at = record
         
-        # اگر purchase_data به صورت رشته JSON است، آن را به دیکشنری تبدیل می‌کنیم
+        # اگر purchase_data به صورت رشته JSON است، آن را به دیکشنری تبدیل کن
         if isinstance(purchase_data, str):
             try:
                 purchase_data = json.loads(purchase_data)
             except json.JSONDecodeError:
-                pass  # اگر تبدیل نشد، به همان صورت رشته باقی می‌ماند
+                pass  # در صورت خطا، رشته باقی می‌ماند
+        
+        # تغییر فلگ
         PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag'] 
-            
+        
+        # حذف رکورد از دیتابیس
+        delete_query = "DELETE FROM purchases WHERE id = %s"
+        cursor.execute(delete_query, (purchase_id,))
+        connection.commit()
+
         return jsonify({
             'purchase_id': purchase_id,
             'purchase_data': purchase_data,
@@ -597,6 +604,7 @@ def get_oldest_purchase(connection, cursor):
         
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
+
 
 
 
