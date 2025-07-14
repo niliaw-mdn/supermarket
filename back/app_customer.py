@@ -417,7 +417,7 @@ def wait_for_port(port, timeout=30):
 
 
 PurchaseFlag = {'Purchase_Flag': False}
-flag_lock = threading.Lock()
+
 
 @app.route('/st1')
 def launch_streamlit():
@@ -521,8 +521,8 @@ def submit_purchase(connection, cursor):
         connection.commit()
         
 
-        with flag_lock:
-            PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag'] 
+
+        PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag'] 
 
 
         getPurchaseFlag = True
@@ -550,8 +550,8 @@ def submit_purchase(connection, cursor):
 
 @app.route('/getPurchaseFlag', methods=['GET'])
 def total_products():
-    with flag_lock:
-        return jsonify({'Purchase Flag': PurchaseFlag['Purchase_Flag']})
+
+    return jsonify({'Purchase Flag': PurchaseFlag['Purchase_Flag']})
 
 
 
@@ -566,8 +566,8 @@ def get_oldest_purchase(connection, cursor):
         query = """
         SELECT id, purchase_data, created_at 
         FROM purchases 
-        ORDER BY created_at ASC 
-        LIMIT 1
+        ORDER BY created_at DESC 
+        LIMIT 1;
         """
         cursor.execute(query)
         oldest = cursor.fetchone()
@@ -584,8 +584,7 @@ def get_oldest_purchase(connection, cursor):
                 purchase_data = json.loads(purchase_data)
             except json.JSONDecodeError:
                 pass  # اگر تبدیل نشد، به همان صورت رشته باقی می‌ماند
-        with flag_lock:
-            PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag'] 
+        PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag'] 
             
         return jsonify({
             'purchase_id': purchase_id,
