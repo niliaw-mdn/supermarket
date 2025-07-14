@@ -297,6 +297,40 @@ def get_one_product(connection, cursor, product_id):
 @app.route('/insertOrder', methods=['POST'])
 @with_db_connection
 def insert_order_api(connection, cursor):
+    """
+
+
+    ✅ فرمت JSON ورودی (نمونه):
+    {
+      "customer_name": "علی رضایی",
+      "customer_phone": "09123456789",
+      "payment_method_id": 2,
+      "products": {
+        "نوشابه گازدار پپسی با طعم کولا - 300 میلی لیتر": 1,
+        "نوشیدنی آناناس حاوی دو برابر تیکه های واقعی میوه‌ی بیشتر رانی - 240 میلی لیتر": 2
+      }
+    }
+
+    📤 پاسخ موفق (201):
+    {
+        "order_id": 105,
+        "total": 18500.0,
+        "order_details": [
+            {
+                "product_name": "نوشابه ...",
+                "product_id": 3,
+                "quantity": 1,
+                "price_per_unit": 8500.0,
+                "total_price": 8500.0,
+                "category_id": 2
+            },
+            ...
+        ]
+    }
+
+    """
+
+    
     data = request.get_json()
     if not data:
         return jsonify({'error': 'Invalid JSON data'}), 400
