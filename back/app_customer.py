@@ -297,82 +297,100 @@ def get_one_product(connection, cursor, product_id):
 @app.route('/insertOrder', methods=['POST'])
 @with_db_connection
 def insert_order_api(connection, cursor):
-    """
-    دریافت payload JSON به شکل:
-    {
-      "customer_name": "...",
-      "total": 123.45,
-      "order_details": [
-         {"product_id": 1, "quantity": 2, "total_price": 50.0},
-         ...
-      ]
-    }
-    و درج رکورد در جدول orders و order_details
-    """
     data = request.get_json()
     if not data:
         return jsonify({'error': 'Invalid JSON data'}), 400
 
-    # اعتبارسنجی اولیه‌ی فیلدهای اصلی
-    if 'customer_name' not in data or 'total' not in data or 'order_detale' not in data:
-        return jsonify({'error': 'Missing required fields'}), 400
+    required = ('customer_name', 'customer_phone', 'payment_method_id', 'products')
+    if not all(k in data for k in required):
+        return jsonify({'error': 'Missing one or more required fields'}), 400
 
-    cursor = connection.cursor()
+    products_dict = data['products']
+    if not isinstance(products_dict, dict) or not products_dict:
+        return jsonify({'error': 'products must be a non-empty object'}), 400
+
     try:
-        # ۱) درج در جدول orders
-        insert_order_sql = """
-            INSERT INTO orders (customer_name, total, date_time, payment_method_id, customer_phone )
+        product_names = list(products_dict.keys())
+        placeholders = ','.join(['%s'] * len(product_names))
+        cursor.execute(
+            f"""SELECT product_id, name, price_per_unit, category_id, available_quantity
+                FROM product WHERE name IN ({placeholders})""",
+            tuple(product_names)
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            raise ValueError("None of the provided products were found in the database.")
+
+        product_info_map = {
+            row[1]: {
+                'product_id': row[0],
+                'price': row[2],
+                'category_id': row[3],
+                'available_quantity': row[4]
+            }
+            for row in rows
+        }
+
+        enriched_details = []
+        total_sum = 0.0
+
+        for name, qty in products_dict.items():
+            if name not in product_info_map:
+                raise ValueError(f"Product not found: {name}")
+
+            if not isinstance(qty, (int, float)) or qty <= 0:
+                raise ValueError(f"Invalid quantity for product: {name}")
+
+            info = product_info_map[name]
+            if info['available_quantity'] < qty:
+                raise ValueError(f"Not enough stock for product '{name}' (available: {info['available_quantity']}, requested: {qty})")
+
+            total_price = info['price'] * qty
+            total_sum += total_price
+
+            enriched_details.append({
+                'product_name': name,
+                'product_id': info['product_id'],
+                'quantity': qty,
+                'price_per_unit': info['price'],
+                'total_price': total_price,
+                'category_id': info['category_id']
+            })
+
+        # درج در جدول orders
+        cursor.execute("""
+            INSERT INTO orders (customer_name, customer_phone, payment_method_id, total, date_time)
             VALUES (%s, %s, %s, %s, %s)
-        """
-        cursor.execute(insert_order_sql, (
+        """, (
             data['customer_name'],
-            data['total'],
-            datetime.now(),
+            data['customer_phone'],
             data['payment_method_id'],
-            data['customer_phone']
+            total_sum,
+            datetime.now()
         ))
         order_id = cursor.lastrowid
 
-        # ۲) برای هر جزئیات سفارش: بررسی موجودی و آماده‌سازی دیتای batch
-        insert_details_sql = """
-            INSERT INTO order_detale (order_id, product_id, quantity, total_price, price_per_unit, category_id)
+        # درج order_details
+        cursor.executemany("""
+            INSERT INTO order_detale (order_id, product_id, quantity, total_price, ppu, category_id)
             VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        details_params = []
-        for item in data['order_details']:
-            # اعتبارسنجی هر آیتم
-            if not all(k in item for k in ('product_id', 'quantity', 'total_price', 'price_per_unit', 'category_id')):
-                raise ValueError("Each order detail must include product_id, quantity, total_price, price_per_unit and category_id")
-            
-            # --- بررسی موجودی محصول ---
-            cursor.execute(
-                "SELECT available_quantity FROM product WHERE product_id = %s",
-                (item['product_id'],)
-            )
-            row = cursor.fetchone()
-            if row is None:
-                raise ValueError(f"Product ID {item['product_id']} does not exist")
-            available_qty = row[0]
-            if available_qty < item['quantity']:
-                raise ValueError(f"Not enough stock for product {item['product_id']} (have {available_qty}, need {item['quantity']})")
-            # --------------------------------
-
-            details_params.append((
+        """, [
+            (
                 order_id,
-                item['product_id'],
-                item['quantity'],
-                item['total_price'],
-                item['price_per_unit'],
-                item['category_id']
-            ))
+                d['product_id'],
+                d['quantity'],
+                d['total_price'],
+                d['price_per_unit'],
+                d['category_id']
+            ) for d in enriched_details
+        ])
 
-        # ۳) درج همه‌ی جزئیات به‌صورت batch
-        if details_params:
-            cursor.executemany(insert_details_sql, details_params)
-
-        # ۴) نهایی‌سازی تراکنش
         connection.commit()
-        return jsonify({'order_id': order_id}), 201
+        return jsonify({
+            'order_id': order_id,
+            'total': total_sum,
+            'order_details': enriched_details
+        }), 201
 
     except ValueError as ve:
         connection.rollback()
@@ -384,6 +402,7 @@ def insert_order_api(connection, cursor):
 
     finally:
         cursor.close()
+
 
 
 
@@ -672,84 +691,86 @@ def calculate_total_weight(connection, cursor):
 def update_stock_after_order(connection, cursor):
     """
     دریافت payload JSON با یکی از ساختارهای زیر:
-    
-    حالت اول (سفارش تک‌تک):
-    {
-      "order_details": [
-          {"product_id": 1, "quantity": 2},
-          {"product_id": 3, "quantity": 1},
-          ...
-      ]
-    }
-    
-    حالت دوم (چند سفارش):
-    {
-       "orders": [
-           {
-               "order_id": 101,
-               "order_details": [
-                   {"product_id": 1, "quantity": 2},
-                   {"product_id": 3, "quantity": 1}
-               ]
-           },
-           {
-               "order_id": 102,
-               "order_details": [
-                   {"product_id": 2, "quantity": 4}
-               ]
-           }
-       ]
-    }
-    
-    هدف: با توجه به تعداد خرید مشتری، موجودی محصولات را در جدول products کاهش دهیم.
+
+    1) دیکشنری مستقیم {product_name: quantity, …}
+    2) {"order_details": [ {"product_id": X, "quantity": Y}, … ]}
+    3) {"orders": [ {"order_details": [… ]}, … ]}
+
+    هدف: کاهش available_quantity در جدول product
     """
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON payload"}), 400
 
-    # استخراج لیست جزئیات سفارش از payload
+    # ————————————— تشخیص ورودی «نام محصول → تعداد» —————————————
     order_items = []
-    if "orders" in data:
+    # اگر خود payload دیکشنری از نام محصول به تعداد باشد:
+    if all(isinstance(v, (int, float)) for v in data.values()) and not any(k in data for k in ("orders", "order_details")):
+        # واکشی همه نام‌ها و یافتن product_id
+        product_names = list(data.keys())
+        placeholders = ','.join(['%s'] * len(product_names))
+        cursor.execute(
+            f"SELECT product_id, name FROM product WHERE name IN ({placeholders})",
+            tuple(product_names)
+        )
+        rows = cursor.fetchall()
+        # نام‌های پیدا شده
+        found = {row[1]: row[0] for row in rows}
+        # بررسی وجود همه‌ی نام‌ها
+        missing = set(product_names) - set(found.keys())
+        if missing:
+            return jsonify({"error": f"Products not found: {', '.join(missing)}"}), 400
+
+        # ساختار مشترک order_items
+        for name, qty in data.items():
+            order_items.append({
+                'product_id': found[name],
+                'quantity': qty
+            })
+
+    # حالت دوم: payload شامل orders یا order_details باشد
+    elif "orders" in data:
         for order in data["orders"]:
-            if "order_detale" not in order:
+            if "order_details" not in order:
                 return jsonify({"error": "Missing order_details in one of the orders"}), 400
             order_items.extend(order["order_details"])
+
     elif "order_details" in data:
         order_items = data["order_details"]
+
     else:
         return jsonify({"error": "Missing order information"}), 400
 
+    # ————————————— اجرای بروزرسانی موجودی —————————————
     try:
         update_sql = """
             UPDATE product
             SET available_quantity = available_quantity - %s
             WHERE product_id = %s
         """
-        # بررسی و به‌روزرسانی موجودی هر محصول
         for item in order_items:
-            if not all(key in item for key in ("product_id", "quantity")):
-                raise ValueError("هر جزئیات سفارش باید شامل product_id و quantity باشد")
+            if not all(k in item for k in ("product_id", "quantity")):
+                raise ValueError("Each order detail must include product_id and quantity")
 
-            product_id = item["product_id"]
-            quantity = item["quantity"]
+            pid = item["product_id"]
+            qty = item["quantity"]
+            if not isinstance(qty, (int, float)) or qty <= 0:
+                raise ValueError(f"Invalid quantity for product_id {pid}")
 
-            # بررسی موجودی فعلی محصول
-            select_sql = "SELECT available_quantity FROM product WHERE product_id = %s"
-            cursor.execute(select_sql, (product_id,))
+            # بررسی موجودی فعلی
+            cursor.execute("SELECT available_quantity FROM product WHERE product_id = %s", (pid,))
             row = cursor.fetchone()
             if row is None:
-                raise ValueError(f"محصول با آی‌دی {product_id} وجود ندارد")
+                raise ValueError(f"Product ID {pid} does not exist")
             current_qty = row[0]
-            if current_qty < quantity:
-                raise ValueError(
-                    f"موجودی ناکافی برای محصول {product_id} (موجود: {current_qty}, درخواست شده: {quantity})"
-                )
-            
-            # به‌روزرسانی موجودی محصول
-            cursor.execute(update_sql, (quantity, product_id))
-        
+            if current_qty < qty:
+                raise ValueError(f"Not enough stock for product_id {pid} (have {current_qty}, need {qty})")
+
+            # کاهش موجودی
+            cursor.execute(update_sql, (qty, pid))
+
         connection.commit()
-        return jsonify({"message": "موجودی محصولات با موفقیت به روز شد"}), 200
+        return jsonify({"message": "Stock levels updated successfully"}), 200
 
     except ValueError as ve:
         connection.rollback()
@@ -761,6 +782,7 @@ def update_stock_after_order(connection, cursor):
 
     finally:
         cursor.close()
+
 
 
 @app.route('/customer_image/<filename>')
@@ -838,53 +860,68 @@ def insert_customer(connection, cursor):
 @with_db_connection
 def update_customer_after_order(connection, cursor):
     """
-    دریافت payload JSON با ساختار زیر:
+    دریافت payload JSON با ساختار:
     {
-      "customer_phone": "09123456789",
-      "order_total": 250.75
+      "customer_phone": "09123456789"
     }
-    
-    هدف: افزایش فیلد number_of_purchases به تعداد ۱ و جمع مبلغ total به مقدار order_total
-    در جدول customer برای مشتری با شماره تماس مشخص.
+
+    تغییرات:
+    - پیدا کردن آخرین سفارش مشتری بر اساس شماره تماس از جدول orders
+    - خواندن total آن سفارش
+    - افزایش number_of_purchases و total در جدول customer
     """
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON payload"}), 400
 
-    # اعتبارسنجی فیلدهای ورودی
-    if "customer_phone" not in data or "order_total" not in data:
-        return jsonify({"error": "Missing customer_phone or order_total"}), 400
+    if "customer_phone" not in data:
+        return jsonify({"error": "Missing customer_phone"}), 400
 
     customer_phone = data["customer_phone"]
-    try:
-        order_total = float(data["order_total"])
-    except (ValueError, TypeError):
-        return jsonify({"error": "order_total must be a number"}), 400
 
     try:
-        # بررسی وجود مشتری با phone
-        select_sql = "SELECT total, number_of_purchases FROM customer WHERE customer_phone = %s"
-        cursor.execute(select_sql, (customer_phone,))
+        # 1. بررسی وجود مشتری
+        cursor.execute(
+            "SELECT total, number_of_purchases FROM customer WHERE customer_phone = %s",
+            (customer_phone,)
+        )
         row = cursor.fetchone()
         if row is None:
             return jsonify({"error": f"مشتری با شماره {customer_phone} یافت نشد"}), 404
+        old_total, old_purchases = row
 
-        # به‌روزرسانی رکورد مشتری
-        update_sql = """
+        # 2. گرفتن جدیدترین سفارش مشتری از جدول orders
+        cursor.execute(
+            """
+            SELECT total FROM orders
+            WHERE customer_phone = %s
+            ORDER BY date_time DESC
+            LIMIT 1
+            """,
+            (customer_phone,)
+        )
+        order_row = cursor.fetchone()
+        if not order_row:
+            return jsonify({"error": "هیچ سفارشی برای این مشتری ثبت نشده است"}), 404
+
+        order_total = order_row[0]
+
+        # 3. به‌روزرسانی اطلاعات مشتری
+        cursor.execute("""
             UPDATE customer
             SET total = total + %s,
                 number_of_purchases = number_of_purchases + 1
             WHERE customer_phone = %s
-        """
-        cursor.execute(update_sql, (order_total, customer_phone))
+        """, (order_total, customer_phone))
+
         connection.commit()
 
         return jsonify({
             "message": "مشخصات مشتری با موفقیت به‌روز شد",
             "customer_phone": customer_phone,
             "added_total": order_total,
-            "new_number_of_purchases": row[1] + 1,
-            "new_total": row[0] + order_total
+            "new_number_of_purchases": old_purchases + 1,
+            "new_total": old_total + order_total
         }), 200
 
     except mysql.connector.Error as db_err:
@@ -893,6 +930,7 @@ def update_customer_after_order(connection, cursor):
 
     finally:
         cursor.close()
+
 
 
 
