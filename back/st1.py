@@ -449,9 +449,6 @@ def show_initial_page():
 
 
 # ----------------- فاز دوربین و تشخیص محصولات -----------------
-
-
-
 def run_camera():
     # بارگیری نگاشت نام محصولات
     if "product_mapping" not in st.session_state:
@@ -648,25 +645,31 @@ def run_camera():
             if current_time - last_update_time > 0.5:
                 last_update_time = current_time
 
-                # نمایش جدول سبد خرید
+                # نمایش جدول سبد خرید (تغییر اصلی در این بخش)
                 if st.session_state.purchase_list:
-                    # ساخت DataFrame برای نمایش داده‌ها
+                    # ساخت DataFrame برای نمایش داده‌ها (بدون ستون ردیف)
                     df = pd.DataFrame(
                         {
-                            "ردیف": range(1, len(st.session_state.purchase_list) + 1),
                             "نام محصول": list(st.session_state.purchase_list.keys()),
                             "تعداد": list(st.session_state.purchase_list.values()),
                         }
                     )
+                    
                     # نمایش جدول با استایل‌های سفارشی
                     st.session_state.df_placeholder.dataframe(
                         df,
                         hide_index=True,
                         use_container_width=True,
                         column_config={
-                            "ردیف": st.column_config.NumberColumn(width="small"),
-                            "نام محصول": st.column_config.TextColumn(width="medium"),
-                            "تعداد": st.column_config.NumberColumn(width="small"),
+                            "نام محصول": st.column_config.TextColumn(
+                                width="medium",
+                                help="نام محصول تشخیص داده شده"
+                            ),
+                            "تعداد": st.column_config.NumberColumn(
+                                "تعداد",
+                                format="%d عدد",
+                                help="تعداد محصولات تشخیص داده شده"
+                            )
                         }
                     )
                 else:
@@ -801,9 +804,6 @@ def show_final_page():
                     # نمایش پیام موفقیت
                     st.success("✅ لیست خرید با موفقیت ثبت شد!")
 
-                    # نمایش جزئیات خرید
-                    st.subheader("📝 جزئیات خرید")
-                    st.json(st.session_state.final_list)
 
                     # نمایش پیام نهایی و بستن تب
                     st.markdown(

@@ -12,7 +12,7 @@ import traceback
 import subprocess
 import json
 import sys
-
+import traceback
 import threading
 
 from datetime import datetime, date 
@@ -20,12 +20,16 @@ from datetime import datetime, date
 import signal
 
 from statistics import median
-
+from datetime import datetime
 
 import socket
 from flask import Flask, jsonify, request, make_response
 from functools import wraps
-
+from flask import Flask, request, jsonify
+from datetime import datetime
+import mysql.connector
+import traceback 
+import logging
 
 
 app = Flask(__name__)
@@ -73,12 +77,13 @@ def with_db_connection(func):
         cursor = None
         try:
             connection = get_db_connection()
-            cursor = connection.cursor()
+            # دیکشنری‌محور برای دسترسی با کلید
+            cursor = connection.cursor(dictionary=True)
             result = func(connection, cursor, *args, **kwargs)
             connection.commit()
             return result
         except mysql.connector.Error as err:
-            if connection.is_connected():
+            if connection and connection.is_connected():
                 connection.rollback()
             raise err
         finally:
@@ -255,29 +260,30 @@ def get_one_product(connection, cursor, product_id):
         return val.isoformat() if isinstance(val, (datetime, date)) else val
 
     response = {
-        'product_id': product[0],
-        'name': product[1],
-        'uom_id': product[2],
-        'price_per_unit': product[3],
-        'available_quantity': product[4],
-        'manufacturer_name': product[5],
-        'weight': product[6],
-        'purchase_price': product[7],
-        'discount_percentage': product[8],
-        'voluminosity': product[9],
-        'combinations': product[10],
-        'nutritional_information': product[11],
-        'expiration_date': safe_date(product[12]),
-        'storage_conditions': product[13],
-        'number_sold': product[14],
-        'date_added_to_stock': safe_date(product[15]),
-        'total_profit_on_sales': product[16],
-        'error_rate_in_weight': product[17],
-        'image_address': product[18],
-        'category_id': product[19],
-        'uom_name': product[20],
-        'category_name': product[21]
+        'product_id': product['product_id'],
+        'name': product['name'],
+        'uom_id': product['uom_id'],
+        'price_per_unit': product['price_per_unit'],
+        'available_quantity': product['available_quantity'],
+        'manufacturer_name': product['manufacturer_name'],
+        'weight': product['weight'],
+        'purchase_price': product['purchase_price'],
+        'discount_percentage': product['discount_percentage'],
+        'voluminosity': product['voluminosity'],
+        'combinations': product['combinations'],
+        'nutritional_information': product['nutritional_information'],
+        'expiration_date': safe_date(product['expiration_date']),
+        'storage_conditions': product['storage_conditions'],
+        'number_sold': product['number_sold'],
+        'date_added_to_stock': safe_date(product['date_added_to_stock']),
+        'total_profit_on_sales': product['total_profit_on_sales'],
+        'error_rate_in_weight': product['error_rate_in_weight'],
+        'image_address': product['image_address'],
+        'category_id': product['category_id'],
+        'uom_name': product['uom_name'],
+        'category_name': product['category_name']
     }
+
 
     return Response(
         json.dumps(response, ensure_ascii=False),
@@ -294,20 +300,26 @@ def get_one_product(connection, cursor, product_id):
 
 
 # Orders APIs
+# برای چاپ خطا
+
+# تنظیم لاگ برای دیباگ
+
+
+
+
+
 @app.route('/insertOrder', methods=['POST'])
 @with_db_connection
 def insert_order_api(connection, cursor):
     """
-
-
     ✅ فرمت JSON ورودی (نمونه):
     {
       "customer_name": "علی رضایی",
       "customer_phone": "09123456789",
       "payment_method_id": 2,
       "products": {
-        "نوشابه گازدار پپسی با طعم کولا - 300 میلی لیتر": 1,
-        "نوشیدنی آناناس حاوی دو برابر تیکه های واقعی میوه‌ی بیشتر رانی - 240 میلی لیتر": 2
+        "نوشابه ... - 300 میلی لیتر": 1,
+        "نوشیدنی آناناس ... رانی - 240 میلی لیتر": 2
       }
     }
 
@@ -327,14 +339,12 @@ def insert_order_api(connection, cursor):
             ...
         ]
     }
-
     """
-
-    
     data = request.get_json()
     if not data:
         return jsonify({'error': 'Invalid JSON data'}), 400
 
+    # بررسی وجود فیلدهای ضروری
     required = ('customer_name', 'customer_phone', 'payment_method_id', 'products')
     if not all(k in data for k in required):
         return jsonify({'error': 'Missing one or more required fields'}), 400
@@ -344,6 +354,7 @@ def insert_order_api(connection, cursor):
         return jsonify({'error': 'products must be a non-empty object'}), 400
 
     try:
+        # 1) واکشی اطلاعات محصولات
         product_names = list(products_dict.keys())
         placeholders = ','.join(['%s'] * len(product_names))
         cursor.execute(
@@ -355,29 +366,41 @@ def insert_order_api(connection, cursor):
         if not rows:
             raise ValueError("None of the provided products were found in the database.")
 
-        product_info_map = {
-            row[1]: {
-                'product_id': row[0],
-                'price': row[2],
-                'category_id': row[3],
-                'available_quantity': row[4]
-            }
-            for row in rows
-        }
+        # 2) ساخت دیکشنری اطلاعات براساس نام محصول
+        product_info_map = {}
+        for row in rows:
+            if isinstance(row, dict):
+                pid   = row['product_id']
+                name  = row['name']
+                price = row['price_per_unit']
+                cat   = row['category_id']
+                avail = row['available_quantity']
+            else:
+                pid, name, price, cat, avail = row
 
+            product_info_map[name] = {
+                'product_id': pid,
+                'price': price,
+                'category_id': cat,
+                'available_quantity': avail
+            }
+
+        # 3) اعتبارسنجی سفارش و محاسبه جزئیات
         enriched_details = []
         total_sum = 0.0
 
         for name, qty in products_dict.items():
             if name not in product_info_map:
                 raise ValueError(f"Product not found: {name}")
-
             if not isinstance(qty, (int, float)) or qty <= 0:
                 raise ValueError(f"Invalid quantity for product: {name}")
 
             info = product_info_map[name]
             if info['available_quantity'] < qty:
-                raise ValueError(f"Not enough stock for product '{name}' (available: {info['available_quantity']}, requested: {qty})")
+                raise ValueError(
+                    f"Not enough stock for product '{name}' "
+                    f"(available: {info['available_quantity']}, requested: {qty})"
+                )
 
             total_price = info['price'] * qty
             total_sum += total_price
@@ -391,9 +414,10 @@ def insert_order_api(connection, cursor):
                 'category_id': info['category_id']
             })
 
-        # درج در جدول orders
+        # 4) درج در جدول orders
         cursor.execute("""
-            INSERT INTO orders (customer_name, customer_phone, payment_method_id, total, date_time)
+            INSERT INTO orders 
+                (customer_name, customer_phone, payment_method_id, total, date_time)
             VALUES (%s, %s, %s, %s, %s)
         """, (
             data['customer_name'],
@@ -404,9 +428,10 @@ def insert_order_api(connection, cursor):
         ))
         order_id = cursor.lastrowid
 
-        # درج order_details
+        # 5) درج جزئیات سفارش
         cursor.executemany("""
-            INSERT INTO order_detale (order_id, product_id, quantity, total_price, ppu, category_id)
+            INSERT INTO order_detale 
+                (order_id, product_id, quantity, total_price, ppu, category_id)
             VALUES (%s, %s, %s, %s, %s, %s)
         """, [
             (
@@ -436,8 +461,6 @@ def insert_order_api(connection, cursor):
 
     finally:
         cursor.close()
-
-
 
 
 
@@ -611,11 +634,12 @@ def total_products():
 
 
 
+from datetime import datetime
+
 @app.route('/oldestPurchase', methods=['GET'])
 @with_db_connection
-def get_oldest_purchase(connection, cursor):
+def get_latest_purchase(connection, cursor):
     try:
-        # کوئری برای دریافت جدیدترین رکورد
         query = """
         SELECT id, purchase_data, created_at 
         FROM purchases 
@@ -628,33 +652,34 @@ def get_oldest_purchase(connection, cursor):
         if not record:
             return jsonify({'message': 'No purchases found'}), 404
         
-        # تبدیل داده‌ها
-        purchase_id, purchase_data, created_at = record
-        
-        # اگر purchase_data به صورت رشته JSON است، آن را به دیکشنری تبدیل کن
+        purchase_id = record['id']
+        purchase_data = record['purchase_data']
+        created_at = record['created_at']
+
+        # تبدیل JSON
         if isinstance(purchase_data, str):
             try:
                 purchase_data = json.loads(purchase_data)
             except json.JSONDecodeError:
-                pass  # در صورت خطا، رشته باقی می‌ماند
-        
+                pass  # همون رشته بمونه
+
+        # تبدیل created_at به رشته فقط در صورت datetime بودن
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            created_at_str = str(created_at)
+
         # تغییر فلگ
-        PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag'] 
-        
-        # حذف رکورد از دیتابیس
-        delete_query = "DELETE FROM purchases WHERE id = %s"
-        cursor.execute(delete_query, (purchase_id,))
-        connection.commit()
+        PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag']
 
         return jsonify({
             'purchase_id': purchase_id,
             'purchase_data': purchase_data,
-            'created_at': created_at.strftime('%Y-%m-%d %H:%M:%S')
+            'created_at': created_at_str
         }), 200
 
     except mysql.connector.Error as err:
         return jsonify({'error': f'Database error: {str(err)}'}), 500
-        
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
@@ -723,24 +748,12 @@ def calculate_total_weight(connection, cursor):
 @app.route('/updateStockAfterOrder', methods=['POST'])
 @with_db_connection
 def update_stock_after_order(connection, cursor):
-    """
-    دریافت payload JSON با یکی از ساختارهای زیر:
-
-    1) دیکشنری مستقیم {product_name: quantity, …}
-    2) {"order_details": [ {"product_id": X, "quantity": Y}, … ]}
-    3) {"orders": [ {"order_details": [… ]}, … ]}
-
-    هدف: کاهش available_quantity در جدول product
-    """
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON payload"}), 400
 
-    # ————————————— تشخیص ورودی «نام محصول → تعداد» —————————————
     order_items = []
-    # اگر خود payload دیکشنری از نام محصول به تعداد باشد:
     if all(isinstance(v, (int, float)) for v in data.values()) and not any(k in data for k in ("orders", "order_details")):
-        # واکشی همه نام‌ها و یافتن product_id
         product_names = list(data.keys())
         placeholders = ','.join(['%s'] * len(product_names))
         cursor.execute(
@@ -748,21 +761,25 @@ def update_stock_after_order(connection, cursor):
             tuple(product_names)
         )
         rows = cursor.fetchall()
-        # نام‌های پیدا شده
-        found = {row[1]: row[0] for row in rows}
-        # بررسی وجود همه‌ی نام‌ها
+        
+        # FIX: Handle both tuple and dictionary row formats
+        found = {}
+        for row in rows:
+            if isinstance(row, dict):  # Dictionary cursor
+                found[row['name']] = row['product_id']
+            else:  # Tuple cursor
+                found[row[1]] = row[0]
+
         missing = set(product_names) - set(found.keys())
         if missing:
             return jsonify({"error": f"Products not found: {', '.join(missing)}"}), 400
 
-        # ساختار مشترک order_items
         for name, qty in data.items():
             order_items.append({
                 'product_id': found[name],
                 'quantity': qty
             })
 
-    # حالت دوم: payload شامل orders یا order_details باشد
     elif "orders" in data:
         for order in data["orders"]:
             if "order_details" not in order:
@@ -775,7 +792,6 @@ def update_stock_after_order(connection, cursor):
     else:
         return jsonify({"error": "Missing order information"}), 400
 
-    # ————————————— اجرای بروزرسانی موجودی —————————————
     try:
         update_sql = """
             UPDATE product
@@ -791,16 +807,18 @@ def update_stock_after_order(connection, cursor):
             if not isinstance(qty, (int, float)) or qty <= 0:
                 raise ValueError(f"Invalid quantity for product_id {pid}")
 
-            # بررسی موجودی فعلی
+            # FIX: Handle both tuple and dictionary formats here too
             cursor.execute("SELECT available_quantity FROM product WHERE product_id = %s", (pid,))
             row = cursor.fetchone()
             if row is None:
                 raise ValueError(f"Product ID {pid} does not exist")
-            current_qty = row[0]
+                
+            # Handle row format dynamically
+            current_qty = row['available_quantity'] if isinstance(row, dict) else row[0]
+
             if current_qty < qty:
                 raise ValueError(f"Not enough stock for product_id {pid} (have {current_qty}, need {qty})")
 
-            # کاهش موجودی
             cursor.execute(update_sql, (qty, pid))
 
         connection.commit()
@@ -831,16 +849,15 @@ def insert_customer(connection, cursor):
         if not phone:
             return jsonify({'error': 'Phone number is required'}), 400
 
-        # بررسی وجود مشتری با شماره تلفن داده شده
+        # بررسی وجود مشتری
         cursor.execute("SELECT customer_id FROM customer WHERE customer_phone = %s", (phone,))
         existing_customer = cursor.fetchone()
 
         if existing_customer:
-            # مشتری قبلا ثبت شده، فقط customer_id برگردان
-            customer_id = existing_customer[0]
+            customer_id = existing_customer["customer_id"]  # ✅ اصلاح شده
             return jsonify({'message': 'Customer already exists', 'customer_id': customer_id}), 200
 
-        # اگر مشتری وجود نداشت، ثبت نام جدید انجام می‌شود
+        # بارگذاری فایل تصویر (در صورت وجود)
         file = request.files.get('file')
         if file:
             timestamp = int(time.time())
@@ -855,15 +872,19 @@ def insert_customer(connection, cursor):
         customer = {
             'customer_name': request.form.get('customer_name'),
             'customer_phone': phone,
-            'membership_date': request.form.get('membership_date'),
-            'number_of_purchases': request.form.get('number_of_purchases'),
-            'total': request.form.get('total'),
+            'membership_date': request.form.get('membership_date'),  # ممکنه None باشه
+            'number_of_purchases': request.form.get('number_of_purchases') or 0,
+            'total': request.form.get('total') or 0,
             'image_address': relative_file_path
         }
 
-        query = """INSERT INTO customer (
-                    customer_name, customer_phone, membership_date, number_of_purchases, total, image_address
-                ) VALUES (%s, %s, NOW(), %s, %s, %s)"""
+        query = """
+            INSERT INTO customer (
+                customer_name, customer_phone, membership_date,
+                number_of_purchases, total, image_address
+            )
+            VALUES (%s, %s, NOW(), %s, %s, %s)
+        """
 
         data = (
             customer['customer_name'],
@@ -874,7 +895,6 @@ def insert_customer(connection, cursor):
         )
 
         cursor.execute(query, data)
-        connection.commit()
         customer_id = cursor.lastrowid
 
         return jsonify({'message': 'Customer added successfully', 'customer_id': customer_id}), 201
@@ -882,6 +902,7 @@ def insert_customer(connection, cursor):
     except mysql.connector.Error as err:
         connection.rollback()
         return jsonify({'error': str(err)}), 500
+
 
 
 
@@ -907,7 +928,6 @@ def update_customer_after_order(connection, cursor):
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid JSON payload"}), 400
-
     if "customer_phone" not in data:
         return jsonify({"error": "Missing customer_phone"}), 400
 
@@ -922,9 +942,15 @@ def update_customer_after_order(connection, cursor):
         row = cursor.fetchone()
         if row is None:
             return jsonify({"error": f"مشتری با شماره {customer_phone} یافت نشد"}), 404
-        old_total, old_purchases = row
 
-        # 2. گرفتن جدیدترین سفارش مشتری از جدول orders
+        # unpack کردنِ total و number_of_purchases
+        if isinstance(row, dict):
+            old_total      = row['total']
+            old_purchases  = row['number_of_purchases']
+        else:
+            old_total, old_purchases = row
+
+        # 2. گرفتن جدیدترین سفارش مشتری
         cursor.execute(
             """
             SELECT total FROM orders
@@ -935,10 +961,14 @@ def update_customer_after_order(connection, cursor):
             (customer_phone,)
         )
         order_row = cursor.fetchone()
-        if not order_row:
+        if order_row is None:
             return jsonify({"error": "هیچ سفارشی برای این مشتری ثبت نشده است"}), 404
 
-        order_total = order_row[0]
+        # unpack کردنِ order_total
+        if isinstance(order_row, dict):
+            order_total = order_row['total']
+        else:
+            (order_total,) = order_row
 
         # 3. به‌روزرسانی اطلاعات مشتری
         cursor.execute("""
@@ -964,6 +994,7 @@ def update_customer_after_order(connection, cursor):
 
     finally:
         cursor.close()
+
 
 
 
@@ -1050,16 +1081,13 @@ def update_customer_info(connection, cursor):
 @app.route("/get_customer_orders", methods=["POST"])
 @with_db_connection
 def get_customer_orders(connection, cursor):
-    # دریافت داده‌های JSON از فرانت
-    data = request.get_json()
-    customer_phone = data.get("customer_phone")
-
-    # بررسی وجود شماره تماس مشتری در درخواست
-    if not customer_phone:
-        return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
-
     try:
-        # اجرای کوئری جهت جستجوی خریدهای مشتری بر اساس شماره تماس
+        data = request.get_json()
+        if not data or "customer_phone" not in data:
+            return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
+
+        customer_phone = data["customer_phone"]
+
         sql = """
             SELECT o.order_id, o.customer_name, o.total, o.date_time
             FROM orders o
@@ -1069,26 +1097,34 @@ def get_customer_orders(connection, cursor):
         cursor.execute(sql, (customer_phone,))
         orders = cursor.fetchall()
 
-        # در صورتی که خریدی یافت نشد، پیام مناسب ارسال می‌شود
         if not orders:
             return jsonify({"error": "هیچ خریدی برای این شماره تماس یافت نشد"}), 404
 
-        # ساخت لیست خریدهای مشتری
         order_list = []
         for order in orders:
+            # ایمن‌سازی تاریخ
+            dt = order["date_time"]
+            if isinstance(dt, datetime):
+                dt_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                dt_str = str(dt)
+
             order_list.append({
                 "order_id": order["order_id"],
                 "customer_name": order["customer_name"],
                 "total": order["total"],
-                "date_time": order["date_time"]
+                "date_time": dt_str
             })
+
+        return jsonify(order_list), 200
+
     except Exception as e:
+        traceback.print_exc()
         return jsonify({
-            "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
+            "error": "خطا در اجرای درخواست",
             "exception": str(e)
         }), 500
 
-    return jsonify(order_list)
 
 
 
@@ -1096,13 +1132,12 @@ def get_customer_orders(connection, cursor):
 
 @app.route("/get_order_details/<int:order_id>", methods=["GET"])
 @with_db_connection
-def get_order_details(order_id, connection, cursor):
+def get_order_details(connection, cursor, order_id):
     try:
-        # اجرای کوئری جهت دریافت جزئیات خرید بر اساس order_id
         sql = """
             SELECT 
                 od.product_id, 
-                p.name, 
+                p.name AS product_name, 
                 od.quantity, 
                 od.total_price, 
                 od.ppu, 
@@ -1115,16 +1150,19 @@ def get_order_details(order_id, connection, cursor):
         cursor.execute(sql, (order_id,))
         order_details = cursor.fetchall()
 
-        # در صورت عدم وجود جزئیات خرید برای شناسه دریافت‌شده
         if not order_details:
             return jsonify({"error": "جزئیاتی برای این خرید یافت نشد"}), 404
+
+        return jsonify(order_details), 200
+
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
             "exception": str(e)
         }), 500
 
-    return jsonify(order_details)
 
 
 
