@@ -8,6 +8,7 @@ import cv2
 import time
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 
@@ -806,19 +807,19 @@ def show_final_page():
 
 
                     # نمایش پیام نهایی و بستن تب
-                    st.markdown(
-                        """
-                        <div class="success-message-card">
-                            <h3>خرید شما با موفقیت ثبت شد!</h3>
-                            <p>صفحه در حال بسته شدن است ...</p>
-                        </div>
-                        <script>
-                        setTimeout(function() {
-                            window.close();
-                        }, 3000);
-                        </script>
-                        """,
-                        unsafe_allow_html=True
+                    components.html(
+    """
+    <div style="text-align: center;">
+        <h3>✅ خرید با موفقیت ثبت شد!</h3>
+        <p>صفحه در حال بسته شدن است ...</p>
+    </div>
+    <script>
+        setTimeout(function() {
+            window.close();
+        }, 3000);
+    </script>
+    """,
+    height=150
                     )
                 else:
                     st.error(f"خطا در ثبت خرید! کد خطا: {response.status_code}")
