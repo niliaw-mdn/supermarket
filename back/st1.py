@@ -1,5 +1,4 @@
 import requests
-#from sympy.printing.pytorch import torch
 import torch
 from ultralytics import YOLO
 from pathlib import Path
@@ -9,9 +8,22 @@ import time
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import random
+import math
+
+import html
 
 
 
+
+
+# تابع تبدیل اعداد انگلیسی به فارسی (فقط برای نمایش)
+def to_persian_num(n):
+    english_to_persian = {
+        '0': '۰', '1': '۱', '2': '۲', '3': '۳', '4': '۴',
+        '5': '۵', '6': '۶', '7': '۷', '8': '۸', '9': '۹'
+    }
+    return ''.join(english_to_persian.get(digit, digit) for digit in str(n))
 
 # تابع برای بارگیری فایل مپینگ محصولات
 def load_product_mapping():
@@ -26,10 +38,6 @@ def load_product_mapping():
         st.error(f"خطا در بارگیری فایل مپینگ: {str(e)}")
         return []
 
-
-
-
-
 # تابع برای تبدیل نام انگلیسی به فارسی
 def get_fa_name(en_label, mapping):
     cleaned_label = en_label.strip().lower().replace(" ", "_").replace("-", "_")
@@ -39,16 +47,22 @@ def get_fa_name(en_label, mapping):
             return item["fa"]
     return f"نامشخص ({en_label})"
 
-
-
-
-
-
-
 # ----------------- تنظیمات CSS سفارشی -----------------
 def add_custom_css():
     st.markdown("""
     <style>
+    /* حذف کامل نوار بالای صفحه */
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+    
+    /* تنظیم مجدد فضای صفحه */
+    .stApp {
+        margin-top: 0;
+        padding-top: 60px; /* فضای اضافی برای نوار موجی بالایی */
+        padding-bottom: 60px; /* فضای اضافی برای نوار موجی پایینی */
+    }
+    
     :root {
         --primary: #0f20db;
         --primary-light: #888ecf;
@@ -326,9 +340,221 @@ def add_custom_css():
         font-size: 18px;
         color: black !important;
     }
+    
+    /* ================= نوار موجی پویا در پایین صفحه ================= */
+    .wave-bottom-container {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 60px;  /* کاهش ارتفاع */
+        z-index: -1;
+        overflow: hidden;
+    }
+    
+    .wave-bottom {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 200%;
+        height: 100%;
+        background: linear-gradient(to right, #0f20db, #00a8ff, #0f20db);
+        opacity: 0.7;
+        border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+        animation: wave-animation 15s linear infinite;
+    }
+    
+    .wave-bottom:nth-child(2) {
+        background: linear-gradient(to right, #00a8ff, #0f20db, #00a8ff);
+        opacity: 0.5;
+        animation: wave-animation 10s linear infinite reverse;
+        height: 90%;
+    }
+    
+    .wave-bottom:nth-child(3) {
+        background: linear-gradient(to right, #0f20db, #00a8ff, #0f20db);
+        opacity: 0.3;
+        animation: wave-animation 12s linear infinite;
+        height: 80%;
+    }
+    
+    /* ================= نوار موجی پویا در بالای صفحه ================= */
+    .wave-top-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 60px;
+        z-index: 9999;
+        overflow: hidden;
+        transform: rotate(180deg); /* چرخش برای ایجاد اثر موج در بالا */
+    }
+    
+    .wave-top {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 200%;
+        height: 100%;
+        background: linear-gradient(to right, #0f20db, #00a8ff, #0f20db);
+        opacity: 0.7;
+        border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+        animation: wave-animation 15s linear infinite;
+    }
+    
+    .wave-top:nth-child(2) {
+        background: linear-gradient(to right, #00a8ff, #0f20db, #00a8ff);
+        opacity: 0.5;
+        animation: wave-animation 10s linear infinite reverse;
+        height: 90%;
+    }
+    
+    .wave-top:nth-child(3) {
+        background: linear-gradient(to right, #0f20db, #00a8ff, #0f20db);
+        opacity: 0.3;
+        animation: wave-animation 12s linear infinite;
+        height: 80%;
+    }
+    
+    /* انیمیشن مشترک برای نوارهای موجی */
+    @keyframes wave-animation {
+        0% {
+            transform: translateX(0) translateY(0) scaleY(1);
+        }
+        25% {
+            transform: translateX(-25%) translateY(5px) scaleY(1.1); /* تغییرات کوچکتر */
+        }
+        50% {
+            transform: translateX(-50%) translateY(0) scaleY(1);
+        }
+        75% {
+            transform: translateX(-25%) translateY(-5px) scaleY(0.9); /* تغییرات کوچکتر */
+        }
+        100% {
+            transform: translateX(0) translateY(0) scaleY(1);
+        }
+    }
+    
+    /* استایل جدید برای جدول پویا */
+    .dynamic-table {
+        width: 100%;
+        border-collapse: collapse;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.08);
+        font-family: 'YekanBakh', Tahoma, sans-serif;
+        margin: 20px 0;
+        animation: fadeIn 0.5s ease;
+        border: 1px solid var(--table-border);
+    }
+    
+    .dynamic-table th {
+        background: linear-gradient(135deg, var(--table-header) 0%, #2c3fe0 100%);
+        color: white;
+        padding: 16px 20px;
+        font-weight: 700;
+        font-size: 18px;
+        text-align: center;
+        border: 1px solid var(--table-border);
+    }
+    
+    .dynamic-table td {
+        padding: 14px 20px;
+        border: 1px solid var(--table-border);
+        text-align: center;
+        font-size: 16px;
+        vertical-align: middle;
+    }
+    
+    .dynamic-table tr {
+        background-color: var(--table-row-odd);
+        transition: all 0.3s ease;
+    }
+    
+    .dynamic-table tr:nth-child(even) {
+        background-color: var(--table-row-even);
+    }
+    
+    .dynamic-table tr:hover {
+        background-color: var(--table-hover);
+    }
+    
+    .row-index {
+        font-weight: bold;
+        color: var(--text);
+    }
+    
+    .product-name {
+        font-weight: 600;
+        color: var(--text);
+    }
+    
+    .product-count {
+        font-weight: 700;
+        color: var(--primary);
+        font-size: 18px;
+    }
+    
+    .action-buttons {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+    }
+    
+    .action-btn {
+        padding: 6px 10px !important;
+        min-width: 35px;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        border: 1px solid #e0e0e0 !important;
+        background-color: #f8fafc !important;
+    }
+    
+    .action-btn:hover {
+        transform: scale(1.05);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .decrease-btn {
+        color: #e53e3e !important;
+    }
+    
+    .increase-btn {
+        color: #48bb78 !important;
+    }
+    
+    .delete-btn {
+        color: #e53e3e !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
+# ----------------- تابع برای ایجاد نوار موجی پایین -----------------
+def generate_wave_bottom():
+    st.markdown(
+        """
+        <div class="wave-bottom-container">
+            <div class="wave-bottom"></div>
+            <div class="wave-bottom"></div>
+            <div class="wave-bottom"></div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# ----------------- تابع برای ایجاد نوار موجی بالا -----------------
+def generate_wave_top():
+    st.markdown(
+        """
+        <div class="wave-top-container">
+            <div class="wave-top"></div>
+            <div class="wave-top"></div>
+            <div class="wave-top"></div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 # ----------------- مقداردهی اولیه session_state -----------------
 def init_session_state():
@@ -343,7 +569,9 @@ def init_session_state():
         "camera_initialized": False,
         "last_update": 0,
         "df_placeholder": None,
-        "product_mapping": []  # اضافه کردن نگاشت محصولات
+        "product_mapping": [],  # اضافه کردن نگاشت محصولات
+        "editing": {},  # برای ذخیره وضعیت ویرایش
+        "edit_form": None  # برای ذخیره فرم ویرایش
     }
 
     for key, value in required_states.items():
@@ -370,7 +598,6 @@ def init_session_state():
     if device == "cuda":
         torch.backends.cudnn.benchmark = True
         torch.set_flush_denormal(True)
-
 
 # ----------------- صفحه اصلی قبل از شروع خرید -----------------
 def show_initial_page():
@@ -417,7 +644,7 @@ def show_initial_page():
 
         with col_center:
             st.markdown(
-                "<div style='text-align:center; padding-top: 60px;'><strong>برای شروع فرآیند خرید از دکمه سمت چپ استفاده کنید</strong></div>",
+                f"<div style='text-align:center; padding-top: 60px;'><strong>برای شروع فرآیند خرید از دکمه سمت چپ استفاده کنید</strong></div>",
                 unsafe_allow_html=True
             )
 
@@ -447,7 +674,6 @@ def show_initial_page():
             </ol>
             </div>
             """, unsafe_allow_html=True)
-
 
 # ----------------- فاز دوربین و تشخیص محصولات -----------------
 def run_camera():
@@ -649,10 +875,11 @@ def run_camera():
                 # نمایش جدول سبد خرید (تغییر اصلی در این بخش)
                 if st.session_state.purchase_list:
                     # ساخت DataFrame برای نمایش داده‌ها (بدون ستون ردیف)
+                    # تبدیل اعداد به فارسی برای نمایش
                     df = pd.DataFrame(
                         {
                             "نام محصول": list(st.session_state.purchase_list.keys()),
-                            "تعداد": list(st.session_state.purchase_list.values()),
+                            "تعداد": [to_persian_num(count) for count in st.session_state.purchase_list.values()],
                         }
                     )
                     
@@ -666,9 +893,8 @@ def run_camera():
                                 width="medium",
                                 help="نام محصول تشخیص داده شده"
                             ),
-                            "تعداد": st.column_config.NumberColumn(
+                            "تعداد": st.column_config.TextColumn(
                                 "تعداد",
-                                format="%d عدد",
                                 help="تعداد محصولات تشخیص داده شده"
                             )
                         }
@@ -692,141 +918,120 @@ def run_camera():
         st.session_state.cap = None
         st.session_state.camera_initialized = False
 
+# ----------------- توابع کمکی برای دکمه‌ها -----------------
+def modify_quantity(product: str, delta: int):
+    """تعداد محصول را تغییر می‌دهد یا در صورت صفر شدن حذف می‌کند."""
+    count = st.session_state.purchase_list.get(product, 0)
+    new_count = count + delta
+    if new_count > 0:
+        st.session_state.purchase_list[product] = new_count
+    else:
+        st.session_state.purchase_list.pop(product, None)
+
+
+def delete_product(product: str):
+    """محصول را از لیست حذف می‌کند."""
+    st.session_state.purchase_list.pop(product, None)
 
 # ----------------- صفحه نهایی جهت ویرایش سبد خرید -----------------
 def show_final_page():
     st.title("✅ تکمیل فرآیند خرید")
     st.markdown("---")
 
-    # نمایش لیست قابل ویرایش
     st.subheader("📋 لیست خرید نهایی")
-
     if not st.session_state.purchase_list:
         st.info("هیچ محصولی در سبد خرید وجود ندارد")
-    else:
-        # ساخت DataFrame برای نمایش داده‌ها
-        df = pd.DataFrame(
-            {
-                "ردیف": range(1, len(st.session_state.purchase_list) + 1),
-                "نام محصول": list(st.session_state.purchase_list.keys()),
-                "تعداد": list(st.session_state.purchase_list.values()),
-            }
-        )
+        return
 
-        # نمایش جدول با استایل‌های سفارشی (چپ چین)
-        st.markdown("""
-        <style>
-            div[data-testid="stDataFrame"] table {
-                width: 100% !important;
-            }
-            div[data-testid="stDataFrame"] th, 
-            div[data-testid="stDataFrame"] td {
-                text-align: left !important;
-            }
-        </style>
-        """, unsafe_allow_html=True)
+    # نمایش هدر جدول
+    header_cols = st.columns([1, 4, 2, 3])
+    header_cols[0].markdown("**ردیف**")
+    header_cols[1].markdown("**نام محصول**")
+    header_cols[2].markdown("**تعداد**")
+    header_cols[3].markdown("**ویرایش**")
 
-        st.dataframe(
-            df,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "ردیف": st.column_config.NumberColumn(width="small"),
-                "نام محصول": st.column_config.TextColumn(width="medium"),
-                "تعداد": st.column_config.NumberColumn(width="small"),
-            }
-        )
+    # نمایش هر محصول در یک ردیف با دکمه‌ها در یک ردیف
+    for idx, (product, count) in enumerate(st.session_state.purchase_list.items(), start=1):
+        cols = st.columns([1, 4, 2, 3])
+        cols[0].markdown(f"{to_persian_num(idx)}")
+        cols[1].markdown(f"{product}")
+        cols[2].markdown(f"{to_persian_num(count)}")
 
-        # ویرایش دستی مقادیر
-        st.subheader("✏️ ویرایش محصولات")
-
-        # ایجاد رابط کاربری برای ویرایش با استفاده از کامپوننت‌های Streamlit
-        for product, count in list(st.session_state.purchase_list.items()):
-            with st.container():
-                st.markdown(f'<div class="product-display product-edit-container">', unsafe_allow_html=True)
-
-                col1, col2, col3 = st.columns([4, 2, 4])
-
-                with col1:
-                    st.markdown(f"<div class='product-name-display'>{product}</div>", unsafe_allow_html=True)
-
-                with col2:
-                    st.markdown(f"<div class='product-count-display'>{count} عدد</div>", unsafe_allow_html=True)
-
-                with col3:
-                    col_dec, col_inc, col_del = st.columns(3)
-
-                    with col_dec:
-                        if st.button("➖ کاهش", key=f"dec_{product}", use_container_width=True):
-                            st.session_state.purchase_list[product] -= 1
-                            if st.session_state.purchase_list[product] <= 0:
-                                del st.session_state.purchase_list[product]
-                            st.rerun()
-
-                    with col_inc:
-                        if st.button("➕ افزایش", key=f"inc_{product}", use_container_width=True):
-                            st.session_state.purchase_list[product] += 1
-                            st.rerun()
-
-                    with col_del:
-                        if st.button("❌ حذف", key=f"del_{product}", type="secondary", use_container_width=True):
-                            del st.session_state.purchase_list[product]
-                            st.rerun()
-
-                st.markdown(f'</div>', unsafe_allow_html=True)
+        with cols[3]:
+            btn_cols = st.columns([1, 1, 1])
+            btn_cols[0].button(
+                "➖",
+                key=f"dec_{product}",
+                help="کاهش تعداد",
+                use_container_width=True,
+                on_click=modify_quantity,
+                args=(product, -1)
+            )
+            btn_cols[1].button(
+                "➕", 
+                key=f"inc_{product}",
+                help="افزایش تعداد",
+                use_container_width=True,
+                on_click=modify_quantity,
+                args=(product, 1)
+            )
+            btn_cols[2].button(
+                "❌", 
+                key=f"del_{product}",
+                help="حذف محصول",
+                use_container_width=True,
+                on_click=delete_product,
+                args=(product,)
+            )
 
     st.markdown("---")
     col1, col2 = st.columns(2)
-
     with col1:
-        if st.button("🔄 شروع دوباره عملیات خرید", type="primary", use_container_width=True,
-                     help="شروع فرآیند خرید از ابتدا"):
-            st.session_state.purchase_started = False
-            st.session_state.running = False
-            st.session_state.purchase_list = {}
-            st.session_state.tracked_objects = {}
-            st.session_state.final_list = None
-            st.rerun()
+        st.button(
+            "🔄 شروع دوباره عملیات خرید", 
+            use_container_width=True,
+            on_click=lambda: [
+                st.session_state.update({
+                    'purchase_started': False,
+                    'running': False,
+                    'purchase_list': {},
+                    'tracked_objects': {},
+                    'final_list': None
+                }), None
+            ]
+        )
 
     with col2:
-        if st.button("✅ ثبت نهایی خرید", type="primary", use_container_width=True,
-                     help="ثبت نهایی لیست خرید و ارسال آن"):
+        if st.button("✅ ثبت نهایی خرید", use_container_width=True):
             st.session_state.final_list = dict(st.session_state.purchase_list)
-
             try:
-                # ارسال داده به Flask
                 response = requests.post(
                     "http://localhost:5001/submit",
                     json=st.session_state.final_list,
                     headers={"Content-Type": "application/json"}
                 )
-
                 if response.status_code == 200:
-                    # نمایش پیام موفقیت
                     st.success("✅ لیست خرید با موفقیت ثبت شد!")
-
-
-                    # نمایش پیام نهایی و بستن تب
                     components.html(
-    """
-    <div style="text-align: center;">
-        <h3>✅ خرید با موفقیت ثبت شد!</h3>
-        <p>صفحه در حال بسته شدن است ...</p>
-    </div>
-    <script>
-        setTimeout(function() {
-            window.close();
-        }, 3000);
-    </script>
-    """,
-    height=150
+                        f"""
+                        <div style=\"text-align: center; animation: fadeIn 0.5s ease;\">   
+                            <h3>✅ خرید با موفقیت ثبت شد!</h3>
+                            <p>صفحه در حال بسته شدن است ...</p>
+                        </div>
+                        <script>
+                            setTimeout(function() {{ window.close(); }}, 1000);
+                        </script>
+                        <style>
+                            @keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(-10px);}} to {{ opacity: 1; transform: translateY(0);}} }}
+                        </style>
+                        """, height=150
                     )
                 else:
                     st.error(f"خطا در ثبت خرید! کد خطا: {response.status_code}")
                     st.json(response.json())
-
             except Exception as e:
                 st.error(f"خطا در ارتباط با سرور: {str(e)}")
+
 
 
 # ----------------- تابع اصلی -----------------
@@ -839,6 +1044,9 @@ def main():
     )
     add_custom_css()
     init_session_state()
+    
+    # اضافه کردن نوار موجی در بالای صفحه
+    generate_wave_top()
 
     if not st.session_state.purchase_started:
         show_initial_page()
@@ -847,7 +1055,9 @@ def main():
             run_camera()
         else:
             show_final_page()
-
+            
+    # اضافه کردن نوار موجی پویا به پایین صفحه در تمام صفحات
+    generate_wave_bottom()
 
 if __name__ == "__main__":
     main()
