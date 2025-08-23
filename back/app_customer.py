@@ -14,6 +14,7 @@ import json
 import sys
 import traceback
 import threading
+from werkzeug.utils import secure_filename  
 
 from datetime import datetime, date 
 
@@ -1047,7 +1048,52 @@ def get_customer_info(connection, cursor):
     
     
 
-@app.route("/update_customer_info", methods=["POST"])
+@app.route('/upload_profile_image', methods=['POST'])
+@with_db_connection
+def upload_profile_image(connection, cursor):
+    try:
+        # دریافت شماره تلفن مشتری
+        customer_phone = request.form.get('customer_phone')
+        if not customer_phone:
+            return jsonify({'error': 'شماره تلفن مشتری الزامی است'}), 400
+        
+        # دریافت فایل تصویر
+        if 'file' not in request.files:
+            return jsonify({'error': 'هیچ فایلی ارسال نشده است'}), 400
+            
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'هیچ فایلی انتخاب نشده است'}), 400
+        
+        # تولید نام فایل و ذخیره آن
+        if file and file.filename:
+            timestamp = int(time.time())
+            file_extension = os.path.splitext(file.filename)[1]
+            filename = f"customer_{customer_phone}_{timestamp}{file_extension}"
+            filename = secure_filename(filename)  # اکنون کار می‌کند
+            file_path = os.path.join(app.config['CUSTOMER_IMAGE'], filename)
+            file.save(file_path)
+            
+            # آدرس نسبی فایل برای ذخیره در دیتابیس
+            relative_file_path = f"/customer_image/{filename}"
+            
+            # به‌روزرسانی مسیر تصویر در دیتابیس
+            update_query = "UPDATE customer SET image_address = %s WHERE customer_phone = %s"
+            cursor.execute(update_query, (relative_file_path, customer_phone))
+            connection.commit()
+            
+            return jsonify({
+                'message': 'تصویر با موفقیت آپلود شد',
+                'image_url': relative_file_path
+            }), 200
+            
+    except Exception as e:
+        print(f"Error in upload_profile_image: {str(e)}")
+        return jsonify({'error': 'خطا در آپلود تصویر', 'details': str(e)}), 500
+
+
+
+@app.route('/update_customer_info', methods=['POST'])
 @with_db_connection
 def update_customer_info(connection, cursor):
     try:
@@ -1055,7 +1101,6 @@ def update_customer_info(connection, cursor):
 
         customer_phone = data.get("customer_phone")
         customer_name = data.get("customer_name")
-
 
         if not customer_phone:
             return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
@@ -1065,9 +1110,7 @@ def update_customer_info(connection, cursor):
         SET customer_name = %s
         WHERE customer_phone = %s
         """
-        cursor.execute(sql, (
-            customer_name, customer_phone
-        ))
+        cursor.execute(sql, (customer_name, customer_phone))
         connection.commit()
 
         return jsonify({"message": "اطلاعات با موفقیت به‌روزرسانی شد"})
@@ -1075,6 +1118,7 @@ def update_customer_info(connection, cursor):
     except Exception as e:
         print(f"Error in update_customer_info: {str(e)}")
         return jsonify({"error": "خطای سرور", "details": str(e)}), 500
+
 
 
 
