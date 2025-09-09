@@ -1,3 +1,5 @@
+import os
+import signal
 import requests
 import torch
 from ultralytics import YOLO
@@ -1016,7 +1018,7 @@ def show_final_page():
                         f"""
                         <div style=\"text-align: center; animation: fadeIn 0.5s ease;\">   
                             <h3>✅ خرید با موفقیت ثبت شد!</h3>
-                            <p>صفحه در حال بسته شدن است ...</p>
+                            <p>برای ادامه خرید و پرداخت به پنل کاربری قسمت سفارش جاری مراجعه کنید</p>
                         </div>
                         <script>
                             setTimeout(function() {{ window.close(); }}, 1000);
@@ -1026,9 +1028,15 @@ def show_final_page():
                         </style>
                         """, height=150
                     )
+                    time.sleep(1)
+                    os.kill(os.getpid(), signal.SIGTERM)    
                 else:
                     st.error(f"خطا در ثبت خرید! کد خطا: {response.status_code}")
-                    st.json(response.json())
+                    try:
+                        st.json(response.json())
+                    except ValueError:
+                        st.warning("❗️ پاسخ سرور JSON معتبر نیست")
+                        st.text(response.text)
             except Exception as e:
                 st.error(f"خطا در ارتباط با سرور: {str(e)}")
 

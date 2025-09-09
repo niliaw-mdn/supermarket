@@ -5,7 +5,7 @@ import os
 # Database configuration
 config = {
     "user": os.getenv('DB_USER', 'root'),
-    "password": os.getenv('DB_PASSWORD', '1234'),
+    "password": os.getenv('DB_PASSWORD', '@liSamani4371'),
     "host": os.getenv('DB_HOST', '127.0.0.1'),
     "database": os.getenv('DB_NAME', 'grocery_store'),
     "pool_name": "grocery_store_pool",

@@ -580,32 +580,24 @@ def launch_streamlit():
 @with_db_connection
 def submit_purchase(connection, cursor):
     try:
-        # دریافت داده JSON از درخواست
+        # دریافت داده JSON
         purchase_data = request.get_json()
-        
-        # بررسی وجود داده
+
         if not purchase_data:
             return jsonify({'error': 'No purchase data provided'}), 400
-        
-        # تبدیل دیکشنری به رشته JSON برای ذخیره در دیتابیس
+
+        # ذخیره‌سازی در دیتابیس
         json_purchase = json.dumps(purchase_data)
-        
-        # درج داده در جدول purchases
-        query = """INSERT INTO purchases (purchase_data) VALUES (%s)"""
+        query = "INSERT INTO purchases (purchase_data) VALUES (%s)"
         cursor.execute(query, (json_purchase,))
-        
-        # اعمال تغییرات در دیتابیس
         connection.commit()
-        
 
+        # آپدیت فلگ
+        PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag']
 
-        PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag'] 
-
-
-        getPurchaseFlag = True
-        # دریافت شناسه خرید ثبت شده
+        # شناسه خرید
         purchase_id = cursor.lastrowid
-        
+
         return jsonify({
             'message': 'Purchase submitted successfully',
             'purchase_id': purchase_id,
@@ -613,13 +605,11 @@ def submit_purchase(connection, cursor):
         }), 200
 
     except mysql.connector.Error as err:
-        # بازگردانی تغییرات در صورت خطا
         connection.rollback()
         return jsonify({'error': f'Database error: {str(err)}'}), 500
-        
+
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
-    
 
 
 
