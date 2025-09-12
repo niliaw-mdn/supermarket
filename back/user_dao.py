@@ -4,7 +4,7 @@ import mysql
 from db_connection import close_connection, get_db_connection
 
 
-# Corrected decorator for database operations
+
 def with_db_connection(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -28,7 +28,7 @@ def with_db_connection(func):
     return wrapper
 
 
-# Helper Function: Fetch User by Email
+
 def fetch_user_by_email(email):
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
@@ -38,7 +38,7 @@ def fetch_user_by_email(email):
     connection.close()
     return user
 
-# Helper Function: Create New User
+
 def create_user(email, password_hash, password_salt):
     connection = get_db_connection()
     cursor = connection.cursor()
@@ -47,7 +47,7 @@ def create_user(email, password_hash, password_salt):
     connection.commit()
     connection.close()
 
-# Helper Function: Delete User by ID
+
 def delete_user_by_id(user_id):
     connection = get_db_connection()
     cursor = connection.cursor()
@@ -56,7 +56,7 @@ def delete_user_by_id(user_id):
     connection.commit()
     connection.close()
 
-# Helper Function: Fetch All Users
+
 def fetch_all_users():
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)
@@ -66,7 +66,7 @@ def fetch_all_users():
     connection.close()
     return users
 
-# Helper Function: Fetch User by ID
+
 def fetch_user_by_id(user_id):
     connection = get_db_connection()
     cursor = connection.cursor(dictionary=True)

@@ -19,7 +19,7 @@ import html
 
 
 
-# تابع تبدیل اعداد انگلیسی به فارسی (فقط برای نمایش)
+
 def to_persian_num(n):
     english_to_persian = {
         '0': '۰', '1': '۱', '2': '۲', '3': '۳', '4': '۴',
@@ -27,7 +27,7 @@ def to_persian_num(n):
     }
     return ''.join(english_to_persian.get(digit, digit) for digit in str(n))
 
-# تابع برای بارگیری فایل مپینگ محصولات
+
 def load_product_mapping():
     try:
         mapping_file = Path(__file__).parent / "product_name_mapping.json"
@@ -40,7 +40,7 @@ def load_product_mapping():
         st.error(f"خطا در بارگیری فایل مپینگ: {str(e)}")
         return []
 
-# تابع برای تبدیل نام انگلیسی به فارسی
+
 def get_fa_name(en_label, mapping):
     cleaned_label = en_label.strip().lower().replace(" ", "_").replace("-", "_")
     for item in mapping:
@@ -49,7 +49,7 @@ def get_fa_name(en_label, mapping):
             return item["fa"]
     return f"نامشخص ({en_label})"
 
-# ----------------- تنظیمات CSS سفارشی -----------------
+
 def add_custom_css():
     st.markdown("""
     <style>
@@ -532,7 +532,7 @@ def add_custom_css():
     </style>
     """, unsafe_allow_html=True)
 
-# ----------------- تابع برای ایجاد نوار موجی پایین -----------------
+
 def generate_wave_bottom():
     st.markdown(
         """
@@ -545,7 +545,7 @@ def generate_wave_bottom():
         unsafe_allow_html=True
     )
 
-# ----------------- تابع برای ایجاد نوار موجی بالا -----------------
+
 def generate_wave_top():
     st.markdown(
         """
@@ -558,7 +558,7 @@ def generate_wave_top():
         unsafe_allow_html=True
     )
 
-# ----------------- مقداردهی اولیه session_state -----------------
+
 def init_session_state():
     required_states = {
         "purchase_started": False,
@@ -571,20 +571,20 @@ def init_session_state():
         "camera_initialized": False,
         "last_update": 0,
         "df_placeholder": None,
-        "product_mapping": [],  # اضافه کردن نگاشت محصولات
-        "editing": {},  # برای ذخیره وضعیت ویرایش
-        "edit_form": None  # برای ذخیره فرم ویرایش
+        "product_mapping": [],  
+        "editing": {},  
+        "edit_form": None  
     }
 
     for key, value in required_states.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
-    # بارگیری نگاشت نام محصولات
+
     if not st.session_state.product_mapping:
         st.session_state.product_mapping = load_product_mapping()
 
-        # بررسی دسترسی به GPU
+
     if torch.cuda.is_available():
         device = "cuda"
         st.sidebar.success("✅ GPU فعال شد! پردازش تصویر روی کارت گرافیک انجام می‌شود.")
@@ -592,16 +592,16 @@ def init_session_state():
         device = "cpu"
         st.sidebar.warning("⚠️ GPU یافت نشد! پردازش روی CPU انجام می‌شود.")
 
-        # بارگذاری مدل روی دستگاه مناسب
+
     if st.session_state.model is None:
         st.session_state.model = YOLO('best (1).pt').to(device)
 
-        # تنظیمات بهینه‌سازی برای GPU
+
     if device == "cuda":
         torch.backends.cudnn.benchmark = True
         torch.set_flush_denormal(True)
 
-# ----------------- صفحه اصلی قبل از شروع خرید -----------------
+
 def show_initial_page():
     container = st.container()
     with container:
@@ -609,11 +609,11 @@ def show_initial_page():
         col_left, col_center, col_right = st.columns([1, 1, 1])
 
         with col_left:
-            # ایجاد فضای بیشتر بالای دکمه
+
             st.markdown('<div style="margin-top: 40px;">', unsafe_allow_html=True)
 
             if st.button("شروع عملیات خرید", key="start_btn", use_container_width=True):
-                # باز کردن صفحه در یک تب جدید که قابل بسته شدن است
+
                 st.markdown(
                     """
                     <script>
@@ -630,7 +630,7 @@ def show_initial_page():
                 st.session_state.camera_initialized = False
                 st.rerun()
 
-            # اضافه کردن آیکون‌ها زیر دکمه با ایموجی‌های ساده
+
             st.markdown(
                 """
                 <div style="text-align: center; margin-top: 30px; font-size: 36px;">
@@ -650,7 +650,7 @@ def show_initial_page():
                 unsafe_allow_html=True
             )
 
-            # اضافه کردن فلش با ایموجی
+
             st.markdown(
                 """
                 <div style="text-align: center; margin-top: 30px; font-size: 36px;">
@@ -661,7 +661,7 @@ def show_initial_page():
             )
 
         with col_right:
-            # بخش راهنمای استفاده با راست‌چین شدن محتوا
+
             st.markdown("""
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
             <h3 style="color: #0f20db; border-bottom: 2px solid #0f20db; padding-bottom: 10px; text-align: right;">راهنمای استفاده</h3>
@@ -677,31 +677,31 @@ def show_initial_page():
             </div>
             """, unsafe_allow_html=True)
 
-# ----------------- فاز دوربین و تشخیص محصولات -----------------
+
 def run_camera():
-    # بارگیری نگاشت نام محصولات
+
     if "product_mapping" not in st.session_state:
         st.session_state.product_mapping = load_product_mapping()
 
-    # مقداردهی اولیه متغیرهای ضروری
+
     if "purchase_list" not in st.session_state:
         st.session_state.purchase_list = {}
 
     if "tracked_objects" not in st.session_state:
         st.session_state.tracked_objects = {}
 
-    # ایجاد طرح‌بندی اصلی
+
     col_left, col_center, col_right = st.columns([1, 2, 1])
 
-    # ناحیه سمت چپ: سبد خرید
+
     with col_left:
         st.subheader("🛍️ سبد خرید شما")
         st.session_state.df_placeholder = st.empty()
 
-    # ناحیه سمت راست: کنترل‌ها
+
     with col_right:
         st.subheader("📋 راهنما")
-        # راست‌چین کردن متن راهنما
+
         st.markdown("""
         <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
         <h3 style="color: #0f20db; border-bottom: 2px solid #0f20db; padding-bottom: 10px; text-align: center;">دستورالعمل استفاده</h3>
@@ -714,7 +714,7 @@ def run_camera():
         </div>
         """, unsafe_allow_html=True)
 
-        # دکمه پایان عملیات
+
         if st.button("⏹️ پایان عملیات", key="end_camera", type="primary", use_container_width=True,
                      help="پس از اتمام خرید این دکمه را فشار دهید"):
             st.session_state.running = False
@@ -722,7 +722,7 @@ def run_camera():
                 st.session_state.cap.release()
             st.rerun()
 
-        # اضافه کردن آیکون‌ها زیر دکمه
+
         st.markdown(
             """
             <div style="text-align: center; margin-top: 20px; font-size: 36px;">
@@ -733,7 +733,7 @@ def run_camera():
             unsafe_allow_html=True
         )
 
-    # راه‌اندازی دوربین
+
     if not st.session_state.camera_initialized:
         try:
             st.session_state.cap = cv2.VideoCapture(0)
@@ -747,12 +747,12 @@ def run_camera():
             st.rerun()
             return
 
-    # ناحیه مرکزی: نمایش دوربین
+
     video_placeholder = col_center.empty()
-    DETECTION_TIMEOUT = 0.5  # زمان عدم مشاهده برای ثبت محصول (ثانیه)
-    MIN_DETECTION_TIME = 1  # حداقل زمان حضور در تصویر برای ثبت محصول (ثانیه)
+    DETECTION_TIMEOUT = 0.5  
+    MIN_DETECTION_TIME = 1  
     last_update_time = time.time()
-    # تعیین دستگاه پردازشی
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     try:
         while st.session_state.running:
@@ -767,30 +767,30 @@ def run_camera():
                 time.sleep(0.1)
                 continue
 
-            # کاهش اندازه تصویر برای افزایش سرعت پردازش
+
             resized_frame = cv2.resize(frame, (320, 240))
 
-            # انجام تشخیص با استفاده از GPU
+
             results = st.session_state.model.track(
                 resized_frame,
                 persist=True,
                 imgsz=320,
                 conf=0.6,
                 verbose=False,
-                device=device,  # استفاده از دستگاه تعیین شده
-                half=True if device == "cuda" else False  # استفاده از دقت نیمه-صحیح برای GPU
+                device=device,  
+                half=True if device == "cuda" else False  
             )
 
-            # شناسایی اشیاء - تمام اشیاء در فریم
+
             current_frame_detections = set()
             current_time = time.time()
 
             for result in results:
-                # اگر هیچ تشخیصی وجود نداشت، ادامه بده
+
                 if result.boxes is None or len(result.boxes) == 0:
                     continue
 
-                # استخراج اطلاعات جعبه‌ها و شناسه‌ها
+
                 boxes = result.boxes.xyxy.cpu().numpy()
                 clss = result.boxes.cls.cpu().numpy()
                 track_ids = result.boxes.id.cpu().numpy() if result.boxes.id is not None else [None] * len(boxes)
@@ -798,14 +798,14 @@ def run_camera():
                 for i in range(len(boxes)):
                     box = boxes[i]
                     cls_idx = int(clss[i].item())
-                    en_label = result.names[cls_idx]  # نام انگلیسی محصول
+                    en_label = result.names[cls_idx]  
                     track_id = track_ids[i] if track_ids is not None else None
 
                     if track_id is not None:
                         track_id = int(track_id.item())
                         current_frame_detections.add((en_label, track_id))
 
-                        # ایجاد/به‌روزرسانی رکورد ردیابی
+
                         if track_id not in st.session_state.tracked_objects:
                             st.session_state.tracked_objects[track_id] = {
                                 "en_label": en_label,
@@ -814,44 +814,42 @@ def run_camera():
                                 "detected": False
                             }
                         else:
-                            # به‌روزرسانی زمان آخرین مشاهده
+
                             st.session_state.tracked_objects[track_id]["last_seen"] = current_time
 
-                    # رسم کادر و برچسب
+
                     x1, y1, x2, y2 = map(int, box[:4])
                     scale_x = frame.shape[1] / resized_frame.shape[1]
                     scale_y = frame.shape[0] / resized_frame.shape[0]
                     x1, y1, x2, y2 = int(x1 * scale_x), int(y1 * scale_y), int(x2 * scale_x), int(y2 * scale_y)
 
-                    # رسم مستطیل دور شیء
+
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 180, 0), 3)
 
-                    # نمایش برچسب و شناسه ردیابی
+
                     label = f"{en_label} #{track_id}" if track_id is not None else en_label
                     cv2.putText(frame, label, (x1, y1 - 10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 220), 2)
 
-            # بررسی محصولات خارج شده از کادر
+
             for track_id, obj_info in list(st.session_state.tracked_objects.items()):
                 en_label = obj_info["en_label"]
 
-                # اگر شیء در فریم فعلی دیده نشده
+
                 if not any(label == en_label and tid == track_id for label, tid in current_frame_detections):
                     time_since_last_seen = current_time - obj_info["last_seen"]
                     time_present = current_time - obj_info["first_seen"]
 
-                    # شرایط ثبت محصول:
-                    # 1. حداقل زمان حضور در تصویر گذشته باشد
-                    # 2. زمان کافی از آخرین مشاهده گذشته باشد
-                    # 3. قبلاً ثبت نشده باشد
+                    
+                    
                     if (time_present > MIN_DETECTION_TIME and
                             time_since_last_seen > DETECTION_TIMEOUT and
                             not obj_info["detected"]):
 
-                        # تبدیل نام انگلیسی به فارسی
+
                         fa_label = get_fa_name(en_label, st.session_state.product_mapping)
 
-                        # افزودن به لیست خرید
+
                         if fa_label not in st.session_state.purchase_list:
                             st.session_state.purchase_list[fa_label] = 0
                         st.session_state.purchase_list[fa_label] += 1
@@ -859,25 +857,25 @@ def run_camera():
                         st.session_state.last_update = current_time
                         st.toast(f"✅ محصول {fa_label} به سبد خرید اضافه شد!", icon="🛒")
 
-                        # علامت گذاری به عنوان شناسایی شده
+
                         st.session_state.tracked_objects[track_id]["detected"] = True
 
-            # حذف اشیاء قدیمی (پس از 10 ثانیه عدم مشاهده)
+
             for track_id in list(st.session_state.tracked_objects.keys()):
                 if current_time - st.session_state.tracked_objects[track_id]["last_seen"] > 10:
                     del st.session_state.tracked_objects[track_id]
 
-            # نمایش ویدئو
+
             video_placeholder.image(frame, channels="BGR", use_container_width=True)
 
-            # به‌روزرسانی سبد خرید (هر 0.5 ثانیه)
+
             if current_time - last_update_time > 0.5:
                 last_update_time = current_time
 
-                # نمایش جدول سبد خرید (تغییر اصلی در این بخش)
+
                 if st.session_state.purchase_list:
-                    # ساخت DataFrame برای نمایش داده‌ها (بدون ستون ردیف)
-                    # تبدیل اعداد به فارسی برای نمایش
+
+
                     df = pd.DataFrame(
                         {
                             "نام محصول": list(st.session_state.purchase_list.keys()),
@@ -885,7 +883,7 @@ def run_camera():
                         }
                     )
                     
-                    # نمایش جدول با استایل‌های سفارشی
+
                     st.session_state.df_placeholder.dataframe(
                         df,
                         hide_index=True,
@@ -907,20 +905,20 @@ def run_camera():
                         unsafe_allow_html=True
                     )
 
-            time.sleep(0.03)  # کاهش مصرف CPU
+            time.sleep(0.03)  
 
     except Exception as e:
         st.error(f"خطا در پردازش تصویر: {str(e)}")
         import traceback
         st.error(traceback.format_exc())
     finally:
-        # آزادسازی منابع دوربین
+
         if st.session_state.cap and st.session_state.cap.isOpened():
             st.session_state.cap.release()
         st.session_state.cap = None
         st.session_state.camera_initialized = False
 
-# ----------------- توابع کمکی برای دکمه‌ها -----------------
+
 def modify_quantity(product: str, delta: int):
     """تعداد محصول را تغییر می‌دهد یا در صورت صفر شدن حذف می‌کند."""
     count = st.session_state.purchase_list.get(product, 0)
@@ -935,7 +933,7 @@ def delete_product(product: str):
     """محصول را از لیست حذف می‌کند."""
     st.session_state.purchase_list.pop(product, None)
 
-# ----------------- صفحه نهایی جهت ویرایش سبد خرید -----------------
+
 def show_final_page():
     st.title("✅ تکمیل فرآیند خرید")
     st.markdown("---")
@@ -945,14 +943,14 @@ def show_final_page():
         st.info("هیچ محصولی در سبد خرید وجود ندارد")
         return
 
-    # نمایش هدر جدول
+
     header_cols = st.columns([1, 4, 2, 3])
     header_cols[0].markdown("**ردیف**")
     header_cols[1].markdown("**نام محصول**")
     header_cols[2].markdown("**تعداد**")
     header_cols[3].markdown("**ویرایش**")
 
-    # نمایش هر محصول در یک ردیف با دکمه‌ها در یک ردیف
+
     for idx, (product, count) in enumerate(st.session_state.purchase_list.items(), start=1):
         cols = st.columns([1, 4, 2, 3])
         cols[0].markdown(f"{to_persian_num(idx)}")
@@ -1042,7 +1040,7 @@ def show_final_page():
 
 
 
-# ----------------- تابع اصلی -----------------
+
 def main():
     st.set_page_config(
         page_title="سیستم خرید هوشمند",
@@ -1053,7 +1051,7 @@ def main():
     add_custom_css()
     init_session_state()
     
-    # اضافه کردن نوار موجی در بالای صفحه
+
     generate_wave_top()
 
     if not st.session_state.purchase_started:
@@ -1064,7 +1062,7 @@ def main():
         else:
             show_final_page()
             
-    # اضافه کردن نوار موجی پویا به پایین صفحه در تمام صفحات
+
     generate_wave_bottom()
 
 if __name__ == "__main__":

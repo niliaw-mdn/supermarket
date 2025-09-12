@@ -35,7 +35,7 @@ import logging
 
 app = Flask(__name__)
 CORS(app)
-# Configuration
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 NEW_PRODUCT_IMG = os.path.join(BASE_DIR, 'new_product_img')
@@ -48,7 +48,7 @@ app.config['NEW_PRODUCT_IMG'] = NEW_PRODUCT_IMG
 
 app.config['CUSTOMER_IMAGE'] = CUSTOMER_IMAGE
 
-#  پوشه ذخیره تصاویر محصولات برای ترین
+
 output_dir = 'new_product_img'
 os.makedirs(output_dir, exist_ok=True)
 
@@ -56,12 +56,12 @@ os.makedirs(output_dir, exist_ok=True)
 streamlit_proc = None
 timer = None
 
-# Route for serving images from the 'uploads' folder
+
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
     return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
 
-# Custom error handler for database errors
+
 @app.errorhandler(mysql.connector.Error)
 def handle_db_error(error):
     """Handle database errors and return appropriate JSON response."""
@@ -70,7 +70,7 @@ def handle_db_error(error):
         "code": error.errno if hasattr(error, 'errno') else 500
     }), 500
 
-# Corrected decorator for database operations
+
 def with_db_connection(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -78,7 +78,7 @@ def with_db_connection(func):
         cursor = None
         try:
             connection = get_db_connection()
-            # دیکشنری‌محور برای دسترسی با کلید
+
             cursor = connection.cursor(dictionary=True)
             result = func(connection, cursor, *args, **kwargs)
             connection.commit()
@@ -129,7 +129,7 @@ def get_productspn(connection, cursor):
         max_price = request.args.get('maxPrice', default=None, type=int)
         sort_field = request.args.get('sort', default='name', type=str)
         sort_order = request.args.get('order', default='asc', type=str)
-        brand = request.args.get('brand', default=None, type=str)  # 🔸 فیلتر برند
+        brand = request.args.get('brand', default=None, type=str)  
 
         print("Received parameters:", {
             'page': page,
@@ -300,11 +300,6 @@ def get_one_product(connection, cursor, product_id):
 
 
 
-# Orders APIs
-# برای چاپ خطا
-
-# تنظیم لاگ برای دیباگ
-
 
 
 
@@ -345,7 +340,7 @@ def insert_order_api(connection, cursor):
     if not data:
         return jsonify({'error': 'Invalid JSON data'}), 400
 
-    # بررسی وجود فیلدهای ضروری
+
     required = ('customer_name', 'customer_phone', 'payment_method_id', 'products')
     if not all(k in data for k in required):
         return jsonify({'error': 'Missing one or more required fields'}), 400
@@ -355,7 +350,7 @@ def insert_order_api(connection, cursor):
         return jsonify({'error': 'products must be a non-empty object'}), 400
 
     try:
-        # 1) واکشی اطلاعات محصولات
+
         product_names = list(products_dict.keys())
         placeholders = ','.join(['%s'] * len(product_names))
         cursor.execute(
@@ -367,7 +362,7 @@ def insert_order_api(connection, cursor):
         if not rows:
             raise ValueError("None of the provided products were found in the database.")
 
-        # 2) ساخت دیکشنری اطلاعات براساس نام محصول
+
         product_info_map = {}
         for row in rows:
             if isinstance(row, dict):
@@ -386,7 +381,7 @@ def insert_order_api(connection, cursor):
                 'available_quantity': avail
             }
 
-        # 3) اعتبارسنجی سفارش و محاسبه جزئیات
+
         enriched_details = []
         total_sum = 0.0
 
@@ -415,7 +410,7 @@ def insert_order_api(connection, cursor):
                 'category_id': info['category_id']
             })
 
-        # 4) درج در جدول orders
+
         cursor.execute("""
             INSERT INTO orders 
                 (customer_name, customer_phone, payment_method_id, total, date_time)
@@ -429,7 +424,7 @@ def insert_order_api(connection, cursor):
         ))
         order_id = cursor.lastrowid
 
-        # 5) درج جزئیات سفارش
+
         cursor.executemany("""
             INSERT INTO order_detale 
                 (order_id, product_id, quantity, total_price, ppu, category_id)
@@ -472,7 +467,7 @@ def insert_order_api(connection, cursor):
 
 
 
-# Global variables for Streamlit management
+
 st_process = None
 st_running = False
 st_port = 8501
@@ -516,15 +511,15 @@ def launch_streamlit():
                 port += 1
             st_port = port
             
-            # Get the absolute path to the script
+
             base_dir = os.path.dirname(os.path.abspath(__file__))
             script_path = os.path.join(base_dir, 'st1.py')
             
-            # Verify the file exists
+
             if not os.path.exists(script_path):
                 raise FileNotFoundError(f"Streamlit script not found at {script_path}")
             
-            # Correct command structure
+
             cmd = [
                 sys.executable,
                 '-m',
@@ -539,14 +534,14 @@ def launch_streamlit():
                 'false'
             ]
             
-            print("Executing command:", ' '.join(cmd))  # Debug output
+            print("Executing command:", ' '.join(cmd))  
             
-            # Start the process
+
             st_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                cwd=base_dir,  # Set working directory
+                cwd=base_dir,  
                 text=True
             )
             
@@ -575,27 +570,27 @@ def launch_streamlit():
 
 
 
-# راه‌اندازی Streamlit پس از رسیدن به مسیر /st1
+
 @app.route('/submit', methods=['POST'])
 @with_db_connection
 def submit_purchase(connection, cursor):
     try:
-        # دریافت داده JSON
+
         purchase_data = request.get_json()
 
         if not purchase_data:
             return jsonify({'error': 'No purchase data provided'}), 400
 
-        # ذخیره‌سازی در دیتابیس
+
         json_purchase = json.dumps(purchase_data)
         query = "INSERT INTO purchases (purchase_data) VALUES (%s)"
         cursor.execute(query, (json_purchase,))
         connection.commit()
 
-        # آپدیت فلگ
+
         PurchaseFlag['Purchase_Flag'] = not PurchaseFlag['Purchase_Flag']
 
-        # شناسه خرید
+
         purchase_id = cursor.lastrowid
 
         return jsonify({
@@ -647,14 +642,14 @@ def get_latest_purchase(connection, cursor):
         purchase_data = record['purchase_data']
         created_at = record['created_at']
 
-        # تبدیل JSON
+
         if isinstance(purchase_data, str):
             try:
                 purchase_data = json.loads(purchase_data)
             except json.JSONDecodeError:
-                pass  # همون رشته بمونه
+                pass 
 
-        # تبدیل created_at به رشته فقط در صورت datetime بودن
+
         if isinstance(created_at, datetime):
             created_at_str = created_at.strftime('%Y-%m-%d %H:%M:%S')
         else:
@@ -683,13 +678,13 @@ def get_latest_purchase(connection, cursor):
 @app.route("/calculate_total_weight", methods=["POST"])
 @with_db_connection
 def calculate_total_weight(connection, cursor):
-    # دریافت داده‌های JSON از فرانت
+
     data = request.get_json()
     products_list = data.get("products", [])
     
     total_weight = 0.0
-    details = []  # جزئیات هر محصول برای گزارش
-    errors = []   # نگهداری پیام‌های خطا در صورت عدم یافتن محصول
+    details = []  
+    errors = []   
 
     try:
         with connection.cursor() as cursor:
@@ -697,7 +692,7 @@ def calculate_total_weight(connection, cursor):
                 product_id = item.get("product_id")
                 quantity = item.get("quantity", 0)
                 
-                # اجرای کوئری برای دریافت اطلاعات محصول با استفاده از product_id
+
                 sql = "SELECT weight, error_rate_in_weight FROM product WHERE product_id = %s"
                 cursor.execute(sql, (product_id,))
                 product = cursor.fetchone()
@@ -709,7 +704,7 @@ def calculate_total_weight(connection, cursor):
                 unit_weight = product['weight']
                 error_rate = product['error_rate_in_weight']
                 
-                # محاسبه وزن محصول به صورت: وزن کل = وزن واحد * تعداد * (1 + درصد خطا)
+
                 product_weight = unit_weight * quantity * (1 + error_rate)
                 total_weight += product_weight
                 
@@ -753,12 +748,12 @@ def update_stock_after_order(connection, cursor):
         )
         rows = cursor.fetchall()
         
-        # FIX: Handle both tuple and dictionary row formats
+
         found = {}
         for row in rows:
-            if isinstance(row, dict):  # Dictionary cursor
+            if isinstance(row, dict):  
                 found[row['name']] = row['product_id']
-            else:  # Tuple cursor
+            else:  
                 found[row[1]] = row[0]
 
         missing = set(product_names) - set(found.keys())
@@ -798,13 +793,13 @@ def update_stock_after_order(connection, cursor):
             if not isinstance(qty, (int, float)) or qty <= 0:
                 raise ValueError(f"Invalid quantity for product_id {pid}")
 
-            # FIX: Handle both tuple and dictionary formats here too
+
             cursor.execute("SELECT available_quantity FROM product WHERE product_id = %s", (pid,))
             row = cursor.fetchone()
             if row is None:
                 raise ValueError(f"Product ID {pid} does not exist")
                 
-            # Handle row format dynamically
+
             current_qty = row['available_quantity'] if isinstance(row, dict) else row[0]
 
             if current_qty < qty:
@@ -840,15 +835,15 @@ def insert_customer(connection, cursor):
         if not phone:
             return jsonify({'error': 'Phone number is required'}), 400
 
-        # بررسی وجود مشتری
+
         cursor.execute("SELECT customer_id FROM customer WHERE customer_phone = %s", (phone,))
         existing_customer = cursor.fetchone()
 
         if existing_customer:
-            customer_id = existing_customer["customer_id"]  # ✅ اصلاح شده
+            customer_id = existing_customer["customer_id"]  
             return jsonify({'message': 'Customer already exists', 'customer_id': customer_id}), 200
 
-        # بارگذاری فایل تصویر (در صورت وجود)
+
         file = request.files.get('file')
         if file:
             timestamp = int(time.time())
@@ -863,7 +858,7 @@ def insert_customer(connection, cursor):
         customer = {
             'customer_name': request.form.get('customer_name'),
             'customer_phone': phone,
-            'membership_date': request.form.get('membership_date'),  # ممکنه None باشه
+            'membership_date': request.form.get('membership_date'),  
             'number_of_purchases': request.form.get('number_of_purchases') or 0,
             'total': request.form.get('total') or 0,
             'image_address': relative_file_path
@@ -925,7 +920,7 @@ def update_customer_after_order(connection, cursor):
     customer_phone = data["customer_phone"]
 
     try:
-        # 1. بررسی وجود مشتری
+
         cursor.execute(
             "SELECT total, number_of_purchases FROM customer WHERE customer_phone = %s",
             (customer_phone,)
@@ -934,14 +929,14 @@ def update_customer_after_order(connection, cursor):
         if row is None:
             return jsonify({"error": f"مشتری با شماره {customer_phone} یافت نشد"}), 404
 
-        # unpack کردنِ total و number_of_purchases
+
         if isinstance(row, dict):
             old_total      = row['total']
             old_purchases  = row['number_of_purchases']
         else:
             old_total, old_purchases = row
 
-        # 2. گرفتن جدیدترین سفارش مشتری
+
         cursor.execute(
             """
             SELECT total FROM orders
@@ -955,13 +950,13 @@ def update_customer_after_order(connection, cursor):
         if order_row is None:
             return jsonify({"error": "هیچ سفارشی برای این مشتری ثبت نشده است"}), 404
 
-        # unpack کردنِ order_total
+
         if isinstance(order_row, dict):
             order_total = order_row['total']
         else:
             (order_total,) = order_row
 
-        # 3. به‌روزرسانی اطلاعات مشتری
+
         cursor.execute("""
             UPDATE customer
             SET total = total + %s,
@@ -1004,7 +999,7 @@ def get_customer_info(connection, cursor):
         if not customer_phone:
             return jsonify({"error": "شماره تماس مشتری اجباری است"}), 400
         
-        # استفاده از دیکشنری‌کرسر
+
         cursor = connection.cursor(dictionary=True)
         
         sql = """
@@ -1042,12 +1037,12 @@ def get_customer_info(connection, cursor):
 @with_db_connection
 def upload_profile_image(connection, cursor):
     try:
-        # دریافت شماره تلفن مشتری
+
         customer_phone = request.form.get('customer_phone')
         if not customer_phone:
             return jsonify({'error': 'شماره تلفن مشتری الزامی است'}), 400
         
-        # دریافت فایل تصویر
+
         if 'file' not in request.files:
             return jsonify({'error': 'هیچ فایلی ارسال نشده است'}), 400
             
@@ -1055,19 +1050,19 @@ def upload_profile_image(connection, cursor):
         if file.filename == '':
             return jsonify({'error': 'هیچ فایلی انتخاب نشده است'}), 400
         
-        # تولید نام فایل و ذخیره آن
+
         if file and file.filename:
             timestamp = int(time.time())
             file_extension = os.path.splitext(file.filename)[1]
             filename = f"customer_{customer_phone}_{timestamp}{file_extension}"
-            filename = secure_filename(filename)  # اکنون کار می‌کند
+            filename = secure_filename(filename)  
             file_path = os.path.join(app.config['CUSTOMER_IMAGE'], filename)
             file.save(file_path)
             
-            # آدرس نسبی فایل برای ذخیره در دیتابیس
+
             relative_file_path = f"/customer_image/{filename}"
             
-            # به‌روزرسانی مسیر تصویر در دیتابیس
+
             update_query = "UPDATE customer SET image_address = %s WHERE customer_phone = %s"
             cursor.execute(update_query, (relative_file_path, customer_phone))
             connection.commit()
@@ -1136,7 +1131,7 @@ def get_customer_orders(connection, cursor):
 
         order_list = []
         for order in orders:
-            # ایمن‌سازی تاریخ
+
             dt = order["date_time"]
             if isinstance(dt, datetime):
                 dt_str = dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -1196,12 +1191,6 @@ def get_order_details(connection, cursor, order_id):
             "error": "خطا در اتصال یا اجرای کوئری دیتابیس",
             "exception": str(e)
         }), 500
-
-
-
-
-
-
 
 
 
